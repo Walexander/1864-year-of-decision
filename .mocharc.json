@@ -1,0 +1,6 @@
+{
+  "diff": true,
+  "require": [
+    "ts-node/register"
+  ]
+}
