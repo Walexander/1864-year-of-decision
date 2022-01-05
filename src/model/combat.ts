@@ -12,10 +12,11 @@ import * as UL from './unit-location'
 import * as U from './unit'
 import * as A from 'fp-ts/Array'
 import * as SEP from 'fp-ts/Separated'
-import { toPlayer, Player } from './player'
+import { Player } from './player'
 import * as Cube from './coords/cube'
 import { Cell } from './game-board/cell'
-import { Ctx } from 'boardgame.io'
+import { BattleResult, getCombatResult } from 'model/combat/result'
+export * as Result from './combat/result'
 SG.concatAll(SG.max(U.initiativeOrder))
 
 export enum AttackType {
@@ -52,18 +53,27 @@ export function resolveCell2(attacker: Player): (G: GameState) => GameState {
 	return (G: GameState): GameState => {
 		const cell = G.combatCell
 		if (!cell) return G
-		const ratio = getBattleCombatRatio(cell, attacker)
+		const ratio = getBattleCombatRatio(cell, attacker) (G)
 		const modifiedRoll = G.combat.roll + G.combatModifier
-		const cRatio = ratio(G)
-		const result = getResult(cRatio, modifiedRoll)
+		const result = getCombatResult(ratio)(modifiedRoll)
 		return {
 			...G,
 			combat: {
 				...G.combat,
 				result,
 			},
+			resolvedCells: [ ...G.resolvedCells, cell ],
 		}
 	}
+}
+
+export function resolveConflict(cell: Cell) {
+	return (G: GameState) => pipe(
+		G.inConflict,
+		A.findIndex((c) => Cube.equals(c.cube, cell.cube)),
+		O.chain((i) => A.deleteAt(i)(G.inConflict)),
+		O.getOrElse(() => G.inConflict)
+	)
 }
 
 export function resolveCell(cell: Cell, attacker: Player, roll: number) {
@@ -88,8 +98,8 @@ export function resolveCell(cell: Cell, attacker: Player, roll: number) {
 		const updated = pipe(
 			units,
 			SEP.bimap(
-				flow(A.map(applyLoss(result.losses[1])), concatStr({})),
-				flow(A.map(applyLoss(result.losses[0])), concatStr({}))
+				flow(A.map(applyLoss(result.attacker.loss)), concatStr({})),
+				flow(A.map(applyLoss(result.defender.loss)), concatStr({}))
 			)
 		)
 		return {
@@ -195,13 +205,18 @@ export function getAttacker(G: GameState): (cell: Cell) => Player {
 		return todo
 	}
 }
-
-export interface CombatResult {
-	losses: [attacker: number, defender: number]
-}
-
-const getResult = (odds: number, roll: number): CombatResult => ({
-	losses: [0.4, 0.1],
+const getResult = (odds: number, roll: number): BattleResult => (
+{
+	attacker: {
+		loss: 0.4,
+		pows: 0,
+		routed: false
+	},
+	defender: {
+		loss: 0.1,
+		pows: 1,
+		routed:false,
+	}
 })
 
 export function getRatio(attacker: number, defender: number) {
@@ -235,24 +250,16 @@ export function modifiedTacticalRating(
 	return (roll) => adjustments[roll - 1][column]
 }
 
-export function modifiedRatio(ratio: number): number {
-	const adjustments = [
-		[0.75, -1],
-		[1, 0],
-		[2.5, 1],
-		[3, 2],
-		[4, 3],
-		[5, 4],
-		[6, 5],
-	]
-	return pipe(
-		adjustments,
-		A.findLast(([target]) => ratio >= target),
-		O.map((a) => a[1]),
-		O.fold(() => 0, identity)
+export function findClosestT<T>(table: Array<[number, T]>): (roll: number) => T {
+	return (roll) => pipe(
+		table,
+		A.findLast( ([target]) => roll >= target),
+		O.map( a => a[1] ),
+		O.fold( () => table[0][1], identity )
 	)
 }
-export const modifiedRatio2 = findClosest([
+
+export const modifiedRatio2 = findClosestT<number>([
 	[0.75, -1],
 	[1, 0],
 	[2.5, 1],
@@ -262,23 +269,15 @@ export const modifiedRatio2 = findClosest([
 	[6, 5],
 ])
 
-function findClosest(
-	adjustments: Array<[number, number]>
-): (val: number) => number {
-	return (val) =>
-		pipe(
-			adjustments,
-			A.findLast(([target]) => val >= target),
-			O.map((a) => a[1]),
-			O.fold(() => 0, identity)
-		)
-}
-const qualityModifier = findClosest([
+const qualityModifier = findClosestT<number>([
 	[0.01, 1],
 	[1, 2],
 	[2.5, 3],
 	[3.5, 4],
 ])
+
+
+
 export function modifiedQuality(
 	cell: Cell,
 	attacker: Player

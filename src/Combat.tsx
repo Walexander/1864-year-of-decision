@@ -1,5 +1,6 @@
 import React from 'react'
 import styled from 'styled-components'
+import { match , select } from 'ts-pattern'
 import { identity, pipe } from 'fp-ts/function'
 import { useMachine } from 'react-robot'
 import { machine, fold, States } from './combat-machine'
@@ -14,7 +15,7 @@ import { Muster  } from 'Combat/Muster'
 import { PlanAttack } from 'Combat/PlanAttack'
 import { Calculate } from 'Combat/Calculate'
 import { CombatStage } from 'Game'
-import { CombatResult } from 'Combat/Result'
+import { RollResult } from 'Combat/RollResult'
 import {Crank} from 'Crank'
 export interface PropTypes {
 	units: U.GameInfo[]
@@ -62,10 +63,14 @@ export const Combat: React.FC<PropTypes> = ({
 		attackCommands: G.attackPlans,
 	})
 	const { units: availableUnits, attackCommands } = combatMachine.context
-	const { musterNext, rollFor, tacticalRoll } = moves
+	const { musterNext, surveyConflict, rollFor, tacticalRoll } = moves
 	const getCalculate = () => (
 		<Calculate
-			startCharge={stage === CombatStage.Charge ? moves.combatRoll : moves.startCharge}
+			startCharge={
+				stage === CombatStage.Charge
+					? moves.combatRoll
+					: moves.startCharge
+			}
 			stage={stage}
 			attacker={attacker}
 			modifiers={G.modifiers}
@@ -74,23 +79,26 @@ export const Combat: React.FC<PropTypes> = ({
 			attackers={G.attackers}
 			defender={otherPlayer(attacker)}
 			onRoll={tacticalRoll}
+			combatResults={G.combat.result}
 			defenders={pipe(
 				G.combatCell,
 				O.fromNullable,
-				O.map( (cell ) => C.getDefender(cell, attacker)(G) ),
-				O.fold(
-					() => [],
-					identity
-				)
+				O.map((cell) => C.getDefender(cell, attacker)(G)),
+				O.fold(() => [], identity)
 			)}
-			>
-				{stage === CombatStage.Calculate ?
-					<Crank onClick={() => moves.startCharge()}>Attack!</Crank> :
-					<>
-					<CombatResult combat={G.combat} />
-					</>
-				}
-			</Calculate>
+		>
+			{stage === CombatStage.Calculate ? (
+				<Crank onClick={() => moves.startCharge()}>Attack!</Crank>
+				) :
+			stage == CombatStage.Charge ?(
+				<Crank onClick={() => moves.surveyConflict()}>Finish!</Crank>
+			)
+				: (
+				<>
+					<RollResult combat={G.combat} />
+				</>
+			)}
+		</Calculate>
 	)
 	const component = fold2(
 		() => (

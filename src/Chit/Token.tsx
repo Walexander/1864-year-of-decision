@@ -24,8 +24,11 @@ export const Wrapper = styled.svg`
 		stroke: white;
 		stroke-width: 0.5rem;
 	}
+	.sp ellipse {
+		fill: red;
+	}
 `
-export const SVGChit: React.FC<{ unit: U.Unit }> = ({ unit }) => (
+export const SVGChit: React.FC<{ unit: U.GameInfo }> = ({ unit }) => (
 	<Wrapper
 		className={'--' + unit.player.toLowerCase()}
 		height="6rem"
@@ -118,6 +121,33 @@ export const SVGChit: React.FC<{ unit: U.Unit }> = ({ unit }) => (
 			>
 				{unit._tag == 'HQ' ? null : toRoman(unit.qualityRating)}
 			</text>
+			<g id="svg_9" className="sp">
+				<ellipse
+					ry="119.47222131097482"
+					rx="126.4999990351498"
+					id="svg_15"
+					cy="262.4722213109748"
+					cx="663.5000028498471"
+					fill="#ff0000"
+					stroke="#fff"
+				></ellipse>
+				<text
+					transform="matrix(5.79153 0 0 4.90286 -3237.34 -248.456)"
+					fontFamily="Noto Sans JP"
+					font-size="32"
+					stroke-width="0"
+					id="svg_16"
+					y="114.71590118040663"
+					x="657.5455159706912"
+					fill="#000000"
+					stroke="#fff"
+					stroke-dasharray="2,2"
+					font-weight="bold"
+					font-style="normal"
+				>
+					{unit.sp}
+				</text>
+			</g>
 			<line
 				className="deco"
 				stroke-width="2"

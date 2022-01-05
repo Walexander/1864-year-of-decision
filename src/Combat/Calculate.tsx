@@ -12,6 +12,8 @@ import * as C from 'model/combat'
 import * as A from 'fp-ts/Array'
 import {CombatModifiers} from 'game-state'
 import {CombatStage} from 'Game'
+import{ BattleResult}from 'model/combat/result'
+import {CombatResult} from './Result'
 
 export interface PropTypes {
 	stage: CombatStage
@@ -25,6 +27,7 @@ export interface PropTypes {
 	modifier: number
 	tacticalRoll: [number, number]
 	children?: React.ReactChild
+	combatResults?: BattleResult
 }
 
 export const Calculate: React.FC<PropTypes> = ({
@@ -37,11 +40,12 @@ export const Calculate: React.FC<PropTypes> = ({
 	modifier,
 	onRoll,
 	children,
+	combatResults,
 }) => {
 	const attackingUnits = pipe(
 			attackers,A.map( (a) => a.commander )
 	)
-	const [attackerRoll, defenderRoll] = tacticalRoll
+	const [attackerRoll ] = tacticalRoll
 	const attackerSp = pipe(
 		attackingUnits,
 		C.getStrengthPoints
@@ -83,7 +87,9 @@ export const Calculate: React.FC<PropTypes> = ({
 					))}
 				</ChitList>
 				<div>
-					<h1>Losses</h1>
+				{!combatResults ?  null : <>
+					<CombatResult results={combatResults.attacker} />
+				</>}
 				</div>
 			</BattleField>
 			<BattleField className={'--' + defender.toLowerCase()}>
@@ -107,7 +113,9 @@ export const Calculate: React.FC<PropTypes> = ({
 					))}
 				</ChitList>
 				<div>
-					<h1>Losses</h1>
+				{!combatResults ?  null : <>
+					<CombatResult results={combatResults.defender} />
+				</>}
 				</div>
 			</BattleField>
 			<aside>

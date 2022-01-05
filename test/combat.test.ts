@@ -46,34 +46,6 @@ export class CombatModelTest {
 		expect(result).toEqual(250)
 	}
 
-	@test.skip 'resolveCell() should not die'() {
-		const state = {
-			...this.state,
-			unitLocations: [
-				[Cube(1, 0, -1), 'Lee'] as UnitLocation,
-				[Cube(0, 0, 0), 'First'] as UnitLocation,
-				[Cube(0, 0, 0), 'Grant'] as UnitLocation,
-			],
-			strengthPoints: {
-				Lee: 10,
-				First: 10,
-				Grant: 10,
-			},
-		}
-		const cell = pipe(
-			state.hexgrid,
-			B.cellFromCube(Cube(0, 0, 0)),
-			O.fold(() => state.hexgrid.cells[0], identity)
-		)
-		const { strengthPoints } = SUT.resolveCell(
-			cell,
-			Player.CSAPlayer
-		)(state)
-		expect(strengthPoints.Lee).toEqual(10)
-		expect(strengthPoints.First).toEqual(6)
-		expect(strengthPoints.Grant).toEqual(9)
-	}
-
 	@test 'sequenceS for a Reader'() {
 		const out = AP.sequenceS(RE.Apply)({
 			f: f('a string here'),
@@ -113,6 +85,8 @@ export class CombatModelTest {
 		const result = out({ minLength: 2 })
 		console.log('result is ', sum2)
 	}
+
+
 
 	@test 'getAttacker() should identify the attacking player'() {
 		const cell = this.state.hexgrid.cells[0]
@@ -166,9 +140,18 @@ export class CombatModelTest {
 		expect(result).toEqual(Player.CSAPlayer)
 	}
 
-	@test.only 'adjustedTactical should return sane value'() {
+	@test'adjustedTactical should return sane value'() {
 		const r = SUT.modifiedTacticalRating(5)(5)
 		expect(r).toEqual(6)
+	}
+	@test.only 'getResults should be curried'() {
+		const r =  SUT.Result.getCombatResult(0.75)
+		console.log('got result ', r)
+		expect(r).toStrictEqual({
+			attacker: {loss: 0.2, routed: true, pows: 0},
+			defender: {loss: 0.03, routed: false, pows: 0}
+		})
+
 	}
 }
 import * as AP from 'fp-ts/Apply'

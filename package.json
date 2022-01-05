@@ -19,6 +19,7 @@
     "robot3": "^0.2.21",
     "roman-numerals": "^0.3.2",
     "styled-components": "^5.3.3",
+    "ts-pattern": "^3.3.4",
     "web-vitals": "^1.0.1"
   },
   "scripts": {

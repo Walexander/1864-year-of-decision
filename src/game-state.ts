@@ -8,6 +8,7 @@ import * as Combat from './model/combat'
 import * as U from './model/unit'
 import { Player } from './model/player'
 import { PlayerMoves } from './model/move-list'
+import { BattleResult } from 'model/combat/result'
 
 export interface CombatModifiers {
 	tactical: number
@@ -31,6 +32,7 @@ export interface GameState {
 	attackers: Combat.AttackCommand[]
 	musterResult: string
 	inConflict: Cell.Cell[]
+	resolvedCells: Cell.Cell[]
 	combatCell?: Cell.Cell
 	lastRoll?: number
 	nextOrder?: Combat.AttackCommand
@@ -39,7 +41,7 @@ export interface GameState {
 	combat: {
 		roll: number
 		modifier: number
-		result?: Combat.CombatResult
+		result?: BattleResult
 	}
 }
 
@@ -154,4 +156,5 @@ export const setup = (): GameState => ({
 		[Cube(0, 0, 0), 'Ohio'] as UnitLocation,
 	],
 	inConflict: [],
+	resolvedCells: [],
 })

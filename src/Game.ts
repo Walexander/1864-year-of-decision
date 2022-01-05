@@ -21,6 +21,7 @@ import { MoveUnitCommand, moveUnit, coordForUnit } from './model/unit-location'
 import * as UL from './model/unit-location'
 import { unitById } from './model/unit'
 import * as Combat from './model/combat'
+import {and} from 'fp-ts/lib/Predicate'
 
 export interface GameMoves {
 	makeMove: (move: MoveUnitCommand) => void
@@ -35,6 +36,7 @@ export interface GameMoves {
 	startCharge: () => void
 	combatRoll: () => void
 	tacticalRoll: () => void
+	surveyConflict: () => void
 	setMission: (unit: U.Unit['unitId'], mission: U.MissionType) => void
 }
 
@@ -69,10 +71,6 @@ export const YearOfDecision = {
 			start: true,
 			onEnd: resetCompleted,
 			turn: {
-				activePlayers: {
-					currentPlayer: 'movement',
-					others: Stage.NULL,
-				},
 				onBegin: (G: GameState) => ({
 					...G,
 					movesRemaining: Infinity,
@@ -102,15 +100,15 @@ export const YearOfDecision = {
 		combat: {
 			next: 'recover',
 			onEnd: flow(resetCompleted, onRoundEnd),
+			endIf,
 			turn: {
+				onMove: startCalculate,
+				onEnd: onPhaseTurnComplete,
+				endIf: (G: GameState)  => G.inConflict.length <= 0,
 				onBegin: (G: GameState, ctx: BG.Ctx) => ({
 					...G,
 					inConflict: getAttackingCells(G, ctx),
 				}),
-				endIf: (G: GameState) => G.inConflict.length <= 0,
-				onEnd: (G: GameState) => pipe(G, onPhaseTurnComplete),
-				onMove: startCalculate,
-				activePlayers: ActivePlayers.ALL,
 				stages: {
 					[CombatStage.Plan]: {},
 					[CombatStage.Muster]: {
@@ -123,16 +121,20 @@ export const YearOfDecision = {
 						},
 					},
 					[CombatStage.Calculate]: {
+						next: CombatStage.Charge,
 						moves: {
 							tacticalRoll,
 							startCharge,
 						},
 					},
-					[CombatStage.Charge]: {},
+					[CombatStage.Charge]: {
+						moves: {
+							surveyConflict,
+						},
+					},
 				},
 			},
 			moves: { musterTroops, startAttack, turnCrank, planAttack },
-			endIf,
 		},
 		endOfRound: {
 			onEnd: (G: GameState) => ({
@@ -157,11 +159,13 @@ export const YearOfDecision = {
 }
 
 function getAttackingCells(G: GameState, ctx: BG.Ctx) {
+	debugger
 	const player = toPlayer(ctx.currentPlayer)
 	const attackers = pipe(
 		G,
 		UL.cellsInConflict,
-		A.filter(flow(Combat.getAttacker(G), (b) => player === b))
+		A.filter(flow(Combat.getAttacker(G), (b) => player === b)),
+		//A.difference(Cell.Eq)(G.resolvedCells)
 	)
 	return attackers
 }
@@ -175,13 +179,35 @@ function onPhaseTurnComplete(G: GameState) {
 
 function startCharge(G: GameState, ctx: BG.Ctx): GameState | string {
 	if (G.tacticalRoll[0] <= 0 || !G.combatCell) return INVALID_MOVE
-
-	ctx.events?.setStage(CombatStage.Charge)
+	ctx.events?.endStage()
 	const __ = pipe(
 		combatRoll(G, ctx),
 		Combat.resolveCell2(toPlayer(ctx.currentPlayer))
 	)
 	return __
+}
+
+function surveyConflict(G: GameState, ctx: BG.Ctx): GameState|string {
+	const inConflict = G.combatCell ? 
+		Combat.resolveConflict (G.combatCell) (G)
+		: G.inConflict
+
+	if(inConflict.length > 0)
+		ctx.events?.setStage(CombatStage.Plan)
+	else
+		ctx.events?.endTurn()
+	return {
+		...G,
+		combatCell: undefined,
+		combat: {
+			modifier: 0,
+			roll: 0,
+			result: undefined,
+
+		},
+		attackers: [],
+		inConflict
+	}
 }
 
 function combatRoll(G: GameState, ctx: BG.Ctx): GameState {
