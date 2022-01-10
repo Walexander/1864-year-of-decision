@@ -24,7 +24,6 @@ export interface PropTypes {
 	onRoll: Function
 	startCharge: Function
 	modifiers: CombatModifiers
-	modifier: number
 	tacticalRoll: [number, number]
 	children?: React.ReactChild
 	combatResults?: BattleResult
@@ -37,13 +36,12 @@ export const Calculate: React.FC<PropTypes> = ({
 	attacker,
 	tacticalRoll,
 	modifiers,
-	modifier,
 	onRoll,
 	children,
 	combatResults,
 }) => {
 	const attackingUnits = pipe(
-			attackers,A.map( (a) => a.commander )
+		attackers,A.map( (a) => a.commander )
 	)
 	const [attackerRoll ] = tacticalRoll
 	const attackerSp = pipe(
@@ -60,6 +58,7 @@ export const Calculate: React.FC<PropTypes> = ({
 		C.getCommander
 	)
 	const ratio = C.getRatio(attackerSp, defenderSp)
+	const modifier = C.getModifierTotal(modifiers)
 	return (
 		<Wrapper className={'--' + attacker.toLowerCase()}>
 			combat ratio<h1>{ratio}</h1>

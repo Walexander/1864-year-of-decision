@@ -141,6 +141,7 @@ export type GameInfo = Unit & {
 	sp: StrengthPoints
 	location: Cube
 	mission: MissionType
+	isRouted: boolean
 }
 
 export function getUnitInfo(unit: Unit) {
@@ -153,5 +154,13 @@ export function getUnitInfo(unit: Unit) {
 			O.getOrElse(() => Cube(0, 0, 0))
 		),
 		mission: pipe(G.missionList, getUnitMission(unit)),
+		isRouted: pipe(
+			G.routedList,
+			R.lookup(unit.unitId),
+			O.fold(
+				() => false,
+				() => true
+			)
+		)
 	})
 }

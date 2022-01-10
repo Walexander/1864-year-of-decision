@@ -174,5 +174,31 @@ export const SVGChit: React.FC<{ unit: U.GameInfo }> = ({ unit }) => (
 				/>
 			</g>
 		</g>
+{
+	unit.isRouted ?
+		<g xmlns="http://www.w3.org/2000/svg" id="svg_25">
+			<path
+				fill="#bc0045"
+				stroke="#000"
+				opacity="undefined"
+				d="m23,30.5l106,0l0,532l-106,0l0,-532z"
+				id="svg_20"
+			/>
+			<text
+				fill="#e1ed04"
+				x="-24.498"
+				y="395.19771"
+				id="svg_24"
+				stroke-width="0"
+				font-size="38"
+				font-family="Noto Sans JP"
+				text-anchor="start"
+				stroke="#000"
+				transform="rotate(90 73.2824 292.812) matrix(2.79579 0 0 2.34959 -73.6244 -606.625)"
+			>
+				ROUTED
+			</text>
+		</g> : null
+}
 	</Wrapper>
 )

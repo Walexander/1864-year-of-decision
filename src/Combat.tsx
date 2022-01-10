@@ -75,11 +75,10 @@ export const Combat: React.FC<PropTypes> = ({
 			attacker={attacker}
 			modifiers={G.modifiers}
 			tacticalRoll={G.tacticalRoll}
-			modifier={G.combatModifier}
-			attackers={G.attackers}
 			defender={otherPlayer(attacker)}
 			onRoll={tacticalRoll}
 			combatResults={G.combat.result}
+			attackers={G.attackers}
 			defenders={pipe(
 				G.combatCell,
 				O.fromNullable,
@@ -89,12 +88,11 @@ export const Combat: React.FC<PropTypes> = ({
 		>
 			{stage === CombatStage.Calculate ? (
 				<Crank onClick={() => moves.startCharge()}>Attack!</Crank>
-				) :
-			stage == CombatStage.Charge ?(
-				<Crank onClick={() => moves.surveyConflict()}>Finish!</Crank>
-			)
-				: (
+			) : (
 				<>
+					<Crank onClick={() => moves.surveyConflict()}>
+						Finish!
+					</Crank>
 					<RollResult combat={G.combat} />
 				</>
 			)}

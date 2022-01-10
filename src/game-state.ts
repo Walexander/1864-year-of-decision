@@ -36,8 +36,8 @@ export interface GameState {
 	combatCell?: Cell.Cell
 	lastRoll?: number
 	nextOrder?: Combat.AttackCommand
-	combatModifier: number
 	tacticalRoll: [number, number]
+	routedList: Record<string, boolean>,
 	combat: {
 		roll: number
 		modifier: number
@@ -55,6 +55,7 @@ export const setup = (): GameState => ({
 		quality: 0,
 		flanking: 0,
 	},
+	routedList: {},
 	combat: {
 		roll: 0,
 		modifier: 0,
@@ -64,7 +65,6 @@ export const setup = (): GameState => ({
 	attackers: [],
 	hexgrid: Board({ columns: 5, rows: 3 }),
 	playerMoves: PlayerMoves(),
-	combatModifier: 0,
 	tacticalRoll: [0, 0],
 	roundInfo: {
 		round: 1,

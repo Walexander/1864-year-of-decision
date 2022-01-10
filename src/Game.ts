@@ -27,7 +27,6 @@ export interface GameMoves {
 	makeMove: (move: MoveUnitCommand) => void
 	turnCrank: () => void
 	endMovement: () => void
-	startAttack: (c: Cell.Cell) => void
 	rollFor: () => void
 	planAttack: (c: Cell.Cell) => void
 	musterTroops: (orders: Combat.AttackCommand[]) => void
@@ -98,7 +97,7 @@ export const YearOfDecision = {
 			next: 'combat',
 		},
 		combat: {
-			next: 'recover',
+			next: 'endOfRound',
 			onEnd: flow(resetCompleted, onRoundEnd),
 			endIf,
 			turn: {
@@ -110,7 +109,9 @@ export const YearOfDecision = {
 					inConflict: getAttackingCells(G, ctx),
 				}),
 				stages: {
-					[CombatStage.Plan]: {},
+					[CombatStage.Plan]: {
+						moves: {musterTroops, planAttack},
+					},
 					[CombatStage.Muster]: {
 						next: CombatStage.Calculate,
 						endIf: (G: GameState) =>
@@ -134,7 +135,7 @@ export const YearOfDecision = {
 					},
 				},
 			},
-			moves: { musterTroops, startAttack, turnCrank, planAttack },
+			moves: { musterTroops, turnCrank, planAttack },
 		},
 		endOfRound: {
 			onEnd: (G: GameState) => ({
@@ -143,7 +144,7 @@ export const YearOfDecision = {
 			}),
 			turn: {},
 			endIf: () => true,
-			next: 'recover',
+			next: 'movement',
 		},
 	},
 	moves: {
@@ -159,7 +160,6 @@ export const YearOfDecision = {
 }
 
 function getAttackingCells(G: GameState, ctx: BG.Ctx) {
-	debugger
 	const player = toPlayer(ctx.currentPlayer)
 	const attackers = pipe(
 		G,
@@ -192,12 +192,19 @@ function surveyConflict(G: GameState, ctx: BG.Ctx): GameState|string {
 		Combat.resolveConflict (G.combatCell) (G)
 		: G.inConflict
 
+	const attacker = toPlayer(ctx.currentPlayer)
 	if(inConflict.length > 0)
 		ctx.events?.setStage(CombatStage.Plan)
 	else
 		ctx.events?.endTurn()
 	return {
 		...G,
+		modifiers: {
+			tactical: 0,
+			quality: 0,
+			ratio: 0,
+			flanking: 0,
+		},
 		combatCell: undefined,
 		combat: {
 			modifier: 0,
@@ -205,8 +212,10 @@ function surveyConflict(G: GameState, ctx: BG.Ctx): GameState|string {
 			result: undefined,
 
 		},
+		tacticalRoll: [0,0],
 		attackers: [],
-		inConflict
+		inConflict,
+		resolvedCells: [],
 	}
 }
 
@@ -251,7 +260,6 @@ function updateModifiers(G: GameState): GameState {
 
 	return {
 		...G,
-		combatModifier: modifier,
 		combat: {
 			...G.combat,
 			modifier,
@@ -280,7 +288,7 @@ function tacticalRoll(G: GameState, ctx: BG.Ctx): GameState {
 	const adjusted = [
 		Combat.modifiedTacticalRating(ratings[0])(rolls[0]),
 		Combat.modifiedTacticalRating(ratings[1])(rolls[1]),
-	]
+	] as const
 	const modifiers = {
 		...G.modifiers,
 		tactical: adjusted[0] - adjusted[1],
@@ -288,7 +296,7 @@ function tacticalRoll(G: GameState, ctx: BG.Ctx): GameState {
 	return pipe(
 		{
 			...G,
-			tacticalRoll: [adjusted[0], adjusted[1]],
+			tacticalRoll: [...adjusted],
 			modifiers,
 		},
 		updateModifiers
@@ -364,23 +372,6 @@ function planAttack(
 		..._,
 		combatCell: cell,
 	}
-}
-
-function startAttack(
-	G: GameState,
-	ctx: BG.Ctx,
-	cell: Cell.Cell
-): string | GameState {
-	const player = toPlayer(ctx.currentPlayer)
-	const roll = ctx.random?.D6() || 0
-	const cellFinder = flow(A.elem(Cell.Eq)(cell))
-	const todo = pipe(
-		G,
-		O.fromPredicate(({ inConflict }) => cellFinder(inConflict)),
-		O.map(Combat.resolveCell(cell, player, roll)),
-		O.foldW(() => INVALID_MOVE, identity)
-	)
-	return todo
 }
 function turnCrank(G: GameState, ctx: BG.Ctx) {
 	ctx.events?.endTurn()

@@ -26,67 +26,20 @@ export class CombatModelTest {
 	}
 	@test 'getRatio(25, 25) should round down'() {
 		const result = SUT.getRatio(25, 25)
-		expect(result).toEqual(100)
+		expect(result).toEqual(1.00)
 	}
 	@test 'getRatio(8, 6) should down to 1.00'() {
 		const result = SUT.getRatio(8, 6)
-		expect(result).toEqual(125)
+		expect(result).toEqual(1.25)
 	}
 	@test 'getRatio(8, 7) should down to 1.25'() {
 		const result = SUT.getRatio(8, 7)
-		expect(result).toEqual(100)
+		expect(result).toEqual(1.00)
 	}
 	@test 'getRatio(19,7) should be 2.75'() {
 		const result = SUT.getRatio(19, 7)
-		expect(result).toEqual(250)
+		expect(result).toEqual(2.50)
 	}
-
-	@test 'getRatio(7,19) should be 2.50'() {
-		const result = SUT.getRatio(7, 19)
-		expect(result).toEqual(250)
-	}
-
-	@test 'sequenceS for a Reader'() {
-		const out = AP.sequenceS(RE.Apply)({
-			f: f('a string here'),
-			g: g(2),
-		})
-		const result = out({ minLength: 3 })
-		expect(result).toEqual({
-			f: 'a string here--a string here--a string here',
-			g: '3',
-		})
-	}
-
-	@test.skip 'pipeable sequenceS for a Reader'() {
-		const out = AP.sequenceS(RE.Apply)({
-			f: f('a string here'),
-			g: g(2),
-		})
-		const as = I.sequence(I.Applicative)([1, 2].map(I.of))
-		expect(as).toStrictEqual([1, 2])
-		const sum = pipe(I.of(addC), I.ap(1), I.ap(2))
-		const sum2 = pipe(
-			I.of(as),
-			I.bindTo('init'),
-			I.bind('sum', ({ init }) =>
-				pipe(I.of(addC), I.ap(init[0]), I.ap(init[1]))
-			),
-			IO.of,
-			IO.chainFirst(C.log),
-			IO.map(({ sum }) => sum)
-		)
-
-		expect(sum2).toBeInstanceOf(Function)
-		expect(sum2()).toStrictEqual({
-			init: as,
-			sum: 3,
-		})
-		const result = out({ minLength: 2 })
-		console.log('result is ', sum2)
-	}
-
-
 
 	@test 'getAttacker() should identify the attacking player'() {
 		const cell = this.state.hexgrid.cells[0]
@@ -114,7 +67,7 @@ export class CombatModelTest {
 		expect(result).toEqual(Player.CSAPlayer)
 	}
 
-	@test 'should remove eliminated units'() {
+	@test.skip 'should remove eliminated units'() {
 		const cell = this.state.hexgrid.cells[0]
 		const to = cell.cube
 		const unitId = 'First'
@@ -130,6 +83,7 @@ export class CombatModelTest {
 			unitLocations,
 			missionList,
 		}
+
 		const result = SUT.getAttacker(state)(cell)
 		// const todo = pipe(
 		// 	state,
@@ -144,8 +98,17 @@ export class CombatModelTest {
 		const r = SUT.modifiedTacticalRating(5)(5)
 		expect(r).toEqual(6)
 	}
-	@test.only 'getResults should be curried'() {
-		const r =  SUT.Result.getCombatResult(0.75)
+	@test 'getResults should be curried'() {
+		const r =  SUT.Result.getCombatResult(0.75) (-2)
+		console.log('got result ', r)
+		expect(r).toStrictEqual({
+			attacker: {loss: 0.2, routed: true, pows: 0},
+			defender: {loss: 0.03, routed: false, pows: 0}
+		})
+
+	}
+	@test 'applyPOWLosses should apply results'() {
+		const r =  SUT.Result.getCombatResult(0.75) (-2)
 		console.log('got result ', r)
 		expect(r).toStrictEqual({
 			attacker: {loss: 0.2, routed: true, pows: 0},

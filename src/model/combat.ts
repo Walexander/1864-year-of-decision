@@ -15,7 +15,8 @@ import * as SEP from 'fp-ts/Separated'
 import { Player } from './player'
 import * as Cube from './coords/cube'
 import { Cell } from './game-board/cell'
-import { BattleResult, getCombatResult } from 'model/combat/result'
+import { BattleResult, Result as CombatResult, getCombatResult } from 'model/combat/result'
+import {clamp} from 'fp-ts/Ord'
 export * as Result from './combat/result'
 SG.concatAll(SG.max(U.initiativeOrder))
 
@@ -53,16 +54,116 @@ export function resolveCell2(attacker: Player): (G: GameState) => GameState {
 	return (G: GameState): GameState => {
 		const cell = G.combatCell
 		if (!cell) return G
-		const ratio = getBattleCombatRatio(cell, attacker) (G)
-		const modifiedRoll = G.combat.roll + G.combatModifier
-		const result = getCombatResult(ratio)(modifiedRoll)
+		return pipe(
+			G,
+			resolveCombat(attacker, cell),
+			updateAttackers,
+			updateRoutedMission,
+		)
+	}
+}
+
+function updateRoutedMission(G: GameState): GameState {
+	return {
+		...G,
+		missionList: pipe(
+			G.routedList,
+			Object.keys,
+			A.reduce(G.missionList, (list, unitId) =>
+				U.setUnitMission(unitId, U.MissionType.DEFEND)(list)
+			)
+		),
+	}
+}
+
+export function getModifierTotal(modifiers: GameState['modifiers']): number {
+	return pipe(
+		Object.values(modifiers),
+		M.concatAll(N.MonoidSum),
+		clamp(N.Ord)(-5, 5),
+	)
+}
+
+function resolveCombat(attacker: Player, cell: Cell): (G: GameState) => GameState {
+	return (G) => {
+		const ratio = getBattleCombatRatio(cell, attacker)(G)
+		const result = pipe(
+			G.modifiers,
+			getModifierTotal,
+			(modifier) => G.combat.roll + modifier,
+			getCombatResult(ratio)
+		)
+		const strengthPoints = applyStrengthPointLosses(
+			attacker,
+			cell,
+			result
+		)(G)
 		return {
 			...G,
-			combat: {
-				...G.combat,
-				result,
-			},
-			resolvedCells: [ ...G.resolvedCells, cell ],
+			combat: {...G.combat, result},
+			strengthPoints,
+			resolvedCells: [...G.resolvedCells, cell],
+			routedList: applyRouted(attacker, cell, result)(G)
+		}
+	}
+}
+
+function updateAttackers(G: GameState): GameState {
+	return {
+			...G,
+			attackers: pipe(
+				G.attackers,
+				A.map((u) => ({
+					...u,
+					commander: {
+						...u.commander,
+						sp: U.getStrength(u.commander)(G.strengthPoints),
+					},
+				}))
+			),
+	}
+}
+
+const concatStrPoints = SG.concatAll(U.strengthSemigroup)
+function applyRouted(
+	attacker: Player,
+	cell: Cell,
+	result: BattleResult
+): (G: GameState) => GameState['routedList'] {
+	return (G) => {
+		const todo = pipe(
+			SEP.separated(
+				pipe(
+					result.attacker.routed ? O.some(G.attackers): O.none,
+					O.map(
+						flow(
+							A.map((a) => a.commander),
+							A.map((u) => [u.unitId, true]),
+							Object.fromEntries
+						)
+					)
+				),
+				pipe(
+					result.defender.routed
+						? O.some(getDefender(cell, attacker)(G))
+						: O.none,
+					O.map(
+						flow(
+							A.map((u) => [u.unitId, true]),
+							Object.fromEntries
+						)
+					)
+				)
+			),
+			SEP.bimap(
+				O.fold(() => ({}), identity),
+				O.fold(() => ({}), identity)
+			)
+		)
+		return {
+			...G.routedList,
+			...todo.left,
+			...todo.right,
 		}
 	}
 }
@@ -76,48 +177,31 @@ export function resolveConflict(cell: Cell) {
 	)
 }
 
-export function resolveCell(cell: Cell, attacker: Player, roll: number) {
-	const concatStr = SG.concatAll(U.strengthSemigroup)
-	return (G: GameState): GameState => {
-		const attackers = pipe(
-			G.attackers,
-			A.map((a) => a.commander)
-		)
-		const defenders = pipe(G, getDefender(cell, attacker))
-		const units = SEP.separated(defenders, attackers)
-		const result = pipe(
-			units,
-			SEP.bimap(getStrengthPoints, getStrengthPoints),
-			(sep) => ({
-				defender: SEP.left(sep),
-				attacker: SEP.right(sep),
-			}),
-			({ attacker, defender }) => getRatio(attacker, defender),
-			(r) => getResult(r, 1)
-		)
-		const updated = pipe(
-			units,
+export function applyStrengthPointLosses(
+	attacker: Player,
+	cell: Cell,
+	result: BattleResult
+): (G: GameState) => U.UnitStrength {
+
+	return (G) => {
+		const todo = pipe(
+			SEP.separated(
+				G.attackers.map((a) => a.commander),
+				getDefender(cell, attacker)(G)
+			),
 			SEP.bimap(
-				flow(A.map(applyLoss(result.attacker.loss)), concatStr({})),
-				flow(A.map(applyLoss(result.defender.loss)), concatStr({}))
+				applyLoss(result.attacker),
+				applyLoss(result.defender)
 			)
 		)
 		return {
-			...G,
-			combatCell: undefined,
-			inConflict: pipe(
-				G.inConflict,
-				A.findIndex((c) => Cube.equals(c.cube, cell.cube)),
-				O.chain((i) => A.deleteAt(i)(G.inConflict)),
-				O.getOrElse(() => G.inConflict)
-			),
-			strengthPoints: concatStr(G.strengthPoints)([
-				updated.left,
-				updated.right,
-			]),
+			...G.strengthPoints,
+			...todo.left,
+			...todo.right,
 		}
 	}
 }
+
 
 export function getBattleCombatRatio(
 	combatCell: Cell,
@@ -137,10 +221,29 @@ export function getBattleCombatRatio(
 		return getRatio(attackers, defenders)
 	}
 }
-function applyLoss(percentLost: number): (unit: U.GameInfo) => U.UnitStrength {
-	return (unit) => ({
-		[unit.unitId]: unit.sp - Math.floor(unit.sp * percentLost),
+function applyLossWithPOW(
+totalUnits: number,
+		result: CombatResult
+): (index: number, unit: U.GameInfo) => U.UnitStrength {
+	const { loss, pows } = result
+	return (index, unit) => ({
+		[unit.unitId]:
+			unit.sp -
+			Math.round(unit.sp * loss) -
+			Math.floor(pows / totalUnits) -
+			(pows % (index + 1)),
 	})
+}
+
+function applyLoss(
+	result: CombatResult
+): (units: U.GameInfo[]) => U.UnitStrength {
+	return (units) =>
+		pipe(
+			units,
+			A.mapWithIndex(applyLossWithPOW(units.length, result)),
+			concatStrPoints({})
+		)
 }
 
 export function musterTroops(commands: AttackCommand[]): U.GameInfo[] {
@@ -205,24 +308,14 @@ export function getAttacker(G: GameState): (cell: Cell) => Player {
 		return todo
 	}
 }
-const getResult = (odds: number, roll: number): BattleResult => (
-{
-	attacker: {
-		loss: 0.4,
-		pows: 0,
-		routed: false
-	},
-	defender: {
-		loss: 0.1,
-		pows: 1,
-		routed:false,
-	}
-})
 
 export function getRatio(attacker: number, defender: number) {
 	let r = (attacker / defender) * 100
 	const remainder = r % 25
-	return Math.round(r - remainder) / 100
+	
+	return pipe(
+		Math.round(r - remainder) / 100,
+	)
 }
 
 export function getCommander(units: U.GameInfo[]): U.GameInfo {
