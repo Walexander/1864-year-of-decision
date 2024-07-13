@@ -1,5 +1,53 @@
-module [hex, filledHex, flame, dawn, velvet, bloodMoon, arrow]
+module [cannon, infantry, hex, horsey, filledHex, flame, dawn, velvet, bloodMoon, arrow]
 import w4.Sprite as Sprite
+
+
+horsey = Sprite.new {
+  width: 8,
+  height: 8,
+  bpp: BPP1,
+  data: [
+    0b00000000,
+    0b00000010,
+    0b00000011,
+    0b01111110,
+    0b10111100,
+    0b00100100,
+    0b00100100,
+    0b00100100,
+  ],
+}
+
+cannon = Sprite.new {
+  width: 8,
+  height: 8,
+  bpp: BPP1,
+  data:[
+    0b00000001,
+    0b00000011,
+    0b00000110,
+    0b00011100,
+    0b00100010,
+    0b00100010,
+    0b01100010,
+    0b11111100,
+  ],
+}
+infantry = Sprite.new {
+  width: 8,
+  height: 8,
+  bpp: BPP1,
+  data:[
+    0b00000000,
+    0b00110000,
+    0b00110000,
+    0b01111100,
+    0b01111100,
+    0b00110000,
+    0b00110000,
+    0b00110000,
+  ]
+}
 
 hex = Sprite.new {
     data: [
