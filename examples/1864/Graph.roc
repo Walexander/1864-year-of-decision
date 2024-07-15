@@ -3,8 +3,7 @@ module [
     fromList,
     fromDict,
     aStar,
-    bfs,
-    dfs,
+    aStar2,
 ]
 
 ## Graph type representing a graph as a dictionary of adjacency lists,
@@ -35,330 +34,235 @@ fromList = \adjacencyList ->
 fromDict : Dict a (List a) -> Graph a
 fromDict = @Graph
 
-## Perform a breadth-first search on a graph to find a target vertex.
-## [Algorithm animation](https://en.wikipedia.org/wiki/Breadth-first_search#/media/File:Animated_BFS.gif)
-##
-## - `isTarget` : A function that returns true if a vertex is the target.
-## - `root`     : The starting vertex for the search.
-## - `graph`    : The graph to perform the search on.
-# dfs2 : (a -> Bool), a, Graph2 a -> Result (a, List a) [NotFound]
-bfs : (a -> Bool), a, Graph2 a -> Result (a, List a) [NotFound] where a implements Hash & Eq & Inspect
-bfs = \isTarget, root, graph ->
-    bfsHelper isTarget [root] (Set.single root) (Dict.empty {}) graph
-    |> Result.map \(t, paths) -> (t, makePaths t paths)
+Estimator a : a -> I32
+Compare a : a, a -> [LT, GT, EQ]
+constZero : Estimator a
+constZero = \_ -> 0
+# prioritizeStack : Compare (a, I32)
+# prioritizeStack = \a, b ->
+#     aa = a.1 #estimator a.1 |> Num.add a.1
+#     bb = b.1 #estimator b.1 |> Num.add b.1
+#     if aa < bb then
+#         LT
+#     else if aa > bb then
+#         GT
+#     else
+#         EQ
+priorityWithEstimate : Estimator a -> Compare (a, I32)
+priorityWithEstimate = \estimator -> \a, b ->
+        aa = estimator a.0 |> Num.add a.1
+        bb = estimator b.0 |> Num.add b.1
+        if aa < bb then
+            LT
+        else if aa > bb then
+            GT
+        else
+            EQ
 
-## It should find nodes starting with "C"
+## priorityWithEstimate should return natural order when cost is always 0
 expect
-    actual =
-        bfs (\v -> Str.startsWith v "C") "A" testGraph2
-        |> Result.map .0
-    expected = Ok "Ccorrect"
+    sortFn = priorityWithEstimate constZero
+    list = [("a", 2), ("b", 0), ("c", 1)]
+    actual = List.sortWith list sortFn
+    expected = [("b", 0), ("c", 1), ("a", 2)]
     actual == expected
 
-## It should find paths to nodes starting with "C"
+## priorityWithEstimate should compare current + estimated value
+## when sorting
 expect
-    actual =
-        bfs (\v -> Str.startsWith v "C") "A" testGraph2
-        |> Result.map .1
-    expected = Ok ["A", "Ccorrect"]
+    sortFn = priorityWithEstimate \s -> if Str.startsWith s "b" then 5 else 0
+    list = [("a", 2), ("b", 0), ("c", 1)]
+    actual = List.sortWith list sortFn
+    expected = [("c", 1), ("a", 2), ("b", 0)]
     actual == expected
 
-expect
-    graph = \_ -> Err NotFound
-    actual =
-        bfs (\v -> Str.startsWith v "B") "A" graph
-        |> Result.map .0
-    expected = Err NotFound
-    actual == expected
+CostDict a : List (a, I32)
+findCost : a, CostDict a -> Result (a, I32) [NotFound] where a implements Hash & Eq
+findCost = \a, costs ->
+    List.findFirst costs \(n, _) -> n == a
+    |> Result.map .1
+    |> Result.map \cost -> (a, cost)
+    |> Result.mapErr \_ -> NotFound
 
-expect
-    graph = \_ -> Err NotFound
-    actual =
-        bfs (\v -> Str.startsWith v "A") "A" graph
-        |> Result.map .1
-    expected = Ok ["A"]
-    actual == expected
-expect
-    graph = \key ->
-        when key is
-            "A" -> Ok ["B"]
-            _ -> Err NotFound
-    actual =
-        bfs (\v -> Str.startsWith v "B") "A" graph
-    expected = Ok ("B", ["A", "B"])
-    actual == expected
-## Perform a depth-first search on a graph to find a target vertex.
-## [Algorithm animation](https://en.wikipedia.org/wiki/Depth-first_search#/media/File:Depth-First-Search.gif)
-##
-## - `isTarget` : A function that returns true if a vertex is the target.
-## - `root`     : The starting vertex for the search.
-## - `graph`    : The graph to perform the search on.
-# dfs : (a -> Bool), a, Graph a -> Result a [NotFound]
-# dfs = \isTarget, root, @Graph graph ->
-#     dfsHelper isTarget [root] (Set.empty {}) graph
+addCosts = \nodes, currentCost, costs ->
+    List.walk nodes costs \accum, discovered ->
+        insertCost discovered (currentCost + 1) accum
 
-dfs : (a -> Bool), a, Graph2 a -> Result (a, List a) [NotFound] where a implements Hash & Eq & Inspect
-dfs = \isTarget, root, graph ->
-    dfsHelper isTarget [root] (Set.empty {}) (Dict.empty {}) graph
-    |> Result.map \(t, paths) -> (t, makePaths t paths)
+insertCost = \a, cost, costs ->
+    List.append costs (a, cost)
 
-makePaths = \v, paths ->
+makeCosts : a -> CostDict a where a implements Hash & Eq
+makeCosts = \a -> [(a, 0)]
+# Parents a : List (parent, child)
+Parents a : List (a, a) where a implements Hash & Eq
+findParentOf : a, Parents a -> Result a [NotFound] where a implements Eq & Hash
+findParentOf = \a, parents ->
+    # Dict.get parents a
+    List.findFirst parents \(_, child) -> child == a
+    |> Result.map .0
+    |> Result.mapErr \_ -> NotFound
+
+addParents : a, List a, Parents a -> Parents a
+addParents = \current, nodes, parents ->
+    List.walk nodes parents \accum, discovered ->
+        insertParent discovered current accum
+
+insertParent = \child, parent, parents ->
+    List.append parents (parent, child)
+
+makeEmptyParents : _ -> Parents a where a implements Hash & Inspect & Eq
+makeEmptyParents = \_ -> []
+
+## Takes our Parents and a target node and returns a list of target nodes
+## in order
+makePathTo : a, Parents a -> List a
+makePathTo = \v, paths ->
     iter = \p, ps ->
-        Dict.get paths p
+        findParentOf p paths
         |> Result.map \a -> iter a (List.prepend ps a)
         |> Result.withDefault ps
     iter v [v]
 
-## It should find paths starting with "C"
-expect
-    actual =
-        dfs (\v -> Str.startsWith v "C") "A" testGraph2
-        |> Result.map .0
-    expected = Ok "Ccorrect"
-    actual == expected
-## It should trace the correct path
-expect
-    actual =
-        dfs (\v -> Str.startsWith v "C") "A" testGraph2
-        |> Result.map .1
-    expected = Ok ["A", "B", "Ccorrect"]
-    actual == expected
-expect
-    graph = \_ -> Err NotFound
-    actual =
-        dfs (\v -> Str.startsWith v "B") "A" graph
-        |> Result.map .0
-    expected = Err NotFound
-    actual == expected
+## Perform a breadth-first search with a fixed cost of 1 for each step
+## and an `Estimator` function to determine priority
+## - `isTarget` : A function that returns true if a vertex is the target.
+## - `root`     : The starting vertex for the search.
+## - `graph`    : The graph to perform the search on.
+aStar : (a -> Bool),
+    Estimator a,
+    a,
+    Graph2 a
+    ->
+    Result (a, List a) [NotFound] where a implements Hash & Eq & Inspect
+aStar = \isTarget, estimator, root, graph ->
+    initialCosts = makeCosts root
+    initialParents = makeEmptyParents {}
+    aStarHelper isTarget estimator [root] initialCosts initialParents graph
+    |> Result.map \(t, paths) -> (t, makePathTo t paths)
 
-expect
-    graph = \_ -> Err NotFound
-    actual =
-        dfs (\v -> Str.startsWith v "A") "A" graph
-        |> Result.map .1
-    expected = Ok ["A"]
-    actual == expected
-expect
-    graph = \key ->
-        when key is
-            "A" -> Ok ["B"]
-            _ -> Err NotFound
-    actual =
-        dfs (\v -> Str.startsWith v "B") "A" graph
-    expected = Ok ("B", ["A", "B"])
-    actual == expected
-
-sortList = \a, b ->
-    if a.1 < b.1 then LT
-    else if a.1 > b.1 then GT
-    else EQ
-# A helper function for performing the depth-first search.
-#
-# `isTarget` : A function that returns true if a vertex is the target.
-# `stack`    : A List of vertices to visit.
-# `visited`  : A Set of visited vertices.
-# `graph`    : The graph to perform the search on.
-aStarHelper : (a -> Bool), List a, Dict a I32, Dict a a, Graph2 a -> Result (a, Dict a a) [NotFound]
-aStarHelper = \isTarget, stack, costs, parents, graph ->
-    myStack =
-        List.keepOks stack \node ->
-            Dict.get costs node |> Result.map \cost -> (node, cost)
-        |> List.sortWith sortList
-        |> List.reverse
-        |> List.map .0
-
-    step = \neighbors, rest, current, currentCost ->
-        filtered =
-            neighbors
-            |> List.keepIf (\n -> !(Dict.contains costs n))
-        # newly explored nodes are added to LIFO stack
-        newStack = List.concat rest filtered
-        newParents = List.walk filtered parents \accum, discovered -> Dict.insert accum discovered current
-        newCosts = List.walk filtered costs \accum, discovered ->
-            Dict.insert accum discovered (currentCost + 1)
-        { stack: newStack, parents: newParents, costs: newCosts }
-    #         Dict.get costs n |> Result.map \cost -> (n cost)
-    when myStack is
-        [] ->
-            Err NotFound
-        [.., current] ->
-            rest = List.dropLast myStack 1
-            if isTarget current then
-                Ok (current, parents)
-            else
-                currentCost = Dict.get costs current |> Result.withDefault 0
-                # newVisited = Dict.insert visited current
-                when graph current is
-                    Ok neighbors ->
-                        next = step neighbors rest current currentCost
-                        aStarHelper isTarget next.stack next.costs next.parents graph
-                    Err _ ->
-                        aStarHelper isTarget rest costs parents graph
-
-
-aStar : (a -> Bool), a, Graph2 a -> Result (a, List a) [NotFound] where a implements Hash & Eq & Inspect
-aStar = \isTarget, root, graph ->
-    initialCosts = Dict.single root 0
-    aStarHelper isTarget [ root ] initialCosts (Dict.empty {}) graph
-    |> Result.map \(t, paths) -> (t, makePaths t paths)
+aStar2 : { isTarget : a -> Bool, root : a, graph : Graph2 a, estimator : Estimator a }
+    ->
+    Result (a, List a) [NotFound] where a implements Hash & Eq & Inspect
+aStar2 = \{ isTarget, root, estimator, graph } ->
+    aStar isTarget estimator root graph
 
 # aStarHelper does not die
 expect
-    dict = Dict.fromList [
-        ("A", 0)
-    ]
-    actual = aStarHelper (\_ -> Bool.true) ["A"] dict (Dict.empty {}) testGraph2
+    dict = makeCosts "A"
+    actual = aStarHelper (\_ -> Bool.true) constZero ["A"] dict (makeEmptyParents {}) testGraph2
     Result.isOk actual
 
 ## aStar terminates with empty graph
 expect
-    actual = aStar (\_ -> Bool.false) "A" emptyGraph
+    actual = aStar (\_ -> Bool.false) constZero "A" emptyGraph
     expected = Err NotFound
     actual == expected
 
 ## aStar It terminates when target not found
 expect
-    actual = aStar (\_ -> Bool.false) "A" testGraph2
+    actual = aStar (\_ -> Bool.false) constZero "A" testGraph2
     expected = Err NotFound
     actual == expected
 
 ## aStar finds the one starting with "C"
 expect
     actual =
-        aStar (\v -> Str.startsWith v "C") "A" testGraph2
+        aStar (\v -> Str.startsWith v "C") constZero "A" testGraph2
         |> Result.map .0
     dbg actual
+
     expected = Ok "Ccorrect"
 
     actual == expected
 
-## aStar finds the one starting with "B"
+# ## aStar finds the one starting with "B"
 expect
     actual =
-        aStar (\v -> Str.startsWith v "B") "A" testGraph2
+        aStar (\v -> Str.startsWith v "B") constZero "A" testGraph2
     expected = Ok ("B", ["A", "B"])
-
     actual == expected
 
-## aStar finds shortest path to "C"
-# expect
-#     actual =
-#         aStar (\v -> Str.startsWith v "C") "A" testGraphMultipath
-#     expected = Ok ("CCorrect", ["A", "B", "CCorrect"])
-
-    # actual == expected
-
-
-## It finds the one starting with "B"
-expect
-    actual =
-        aStar (\v -> Str.startsWith v "B") "A" testGraph2
-    expected = Ok ("B", ["A", "B"])
-
-    actual == expected
-
-## It finds the shortest path
-expect
-    actual = aStar (\v -> Str.startsWith v "X") "A" testGraphMultipath
-    expected = Ok ("XYZ", ["A", "B", "XYZ"])
-    actual == expected
-
-
-# A helper function for performing the depth-first search.
+# A helper function for performing A* search.
 #
-# `isTarget` : A function that returns true if a vertex is the target.
-# `stack`    : A List of vertices to visit.
-# `visited`  : A Set of visited vertices.
-# `graph`    : The graph to perform the search on.
-dfsHelper : (a -> Bool), List a, Set a, Dict a a, Graph2 a -> Result (a, Dict a a) [NotFound]
-dfsHelper = \isTarget, stack, visited, parents, graph ->
-    when stack is
+# `isTarget`   : A function that returns true if a vertex is the target.
+# `estimator`  : An estimator functions that cacluclates approx distance to target.
+# `stack`      : List of vertices remaining.
+# `costs`      : CostDict for looking up the cost to reach each node's parent
+# `parents`    : Parents object for tracking each node's parent
+# `graph`      : The graph to perform the search on.
+aStarHelper : (a -> Bool),
+    Estimator a,
+    List a,
+    CostDict a,
+    Parents a,
+    Graph2 a
+    ->
+    Result (a, Parents a) [NotFound]
+aStarHelper = \isTarget, estimator, stack, costs, parents, graph ->
+    sorter = priorityWithEstimate estimator
+    myStack =
+        List.keepOks stack \node -> findCost node costs
+        |> List.sortWith sorter
+        |> List.map .0
+
+    step = \neighbors, rest, current, currentCost ->
+        filtered =
+            neighbors # discard the nodes we have already *seen*
+            |> List.keepIf (\n -> Result.isErr (findCost n costs))
+        # return a new search context
+        {
+            stack: List.concat rest filtered,
+            parents: addParents current filtered parents,
+            costs: addCosts filtered currentCost costs,
+        }
+
+    when myStack is
         [] ->
-            Err NotFound
-
-        [.., current] ->
-            rest = List.dropLast stack 1
-            if isTarget current then
-                Ok (current, parents)
-            else if Set.contains visited current then
-                dfsHelper isTarget rest visited parents graph
-            else
-                newVisited = Set.insert visited current
-                when graph current is
-                    Ok neighbors ->
-                        filtered =
-                            neighbors
-                            |> List.keepIf (\n -> !(Set.contains newVisited n))
-                            |> List.reverse
-
-                        # newly explored nodes are added to LIFO stack
-                        newStack = List.concat rest filtered
-                        newParents : Dict a a
-                        newParents = List.walk filtered parents \accum, discovered ->
-                            Dict.insert accum discovered current
-                        dfsHelper isTarget newStack newVisited newParents graph
-
-                    Err _ ->
-                        dfsHelper isTarget rest newVisited parents graph
-
-# A helper function for performing the breadth-first search.
-#
-# `isTarget` : A function that returns true if a vertex is the target.
-# `queue`    : A List of vertices to visit.
-# `seen`  : A Set of all seen vertices.
-# `graph`    : The graph to perform the search on.
-bfsHelper : (a -> Bool), List a, Set a, Dict a a, Graph2 a -> Result (a, Dict a a) [NotFound]
-bfsHelper = \isTarget, queue, seen, parents, graph ->
-    when queue is
-        [] ->
+            # we have run out of nodes, Err
+            # but We're done!
             Err NotFound
 
         [current, ..] ->
-            rest = List.dropFirst queue 1
-
+            # take the first node in the queue
+            rest = List.dropFirst myStack 1
             if isTarget current then
+                # We're done!
                 Ok (current, parents)
             else
+                # get the cost to our current node
+                currentCost = findCost current costs |> Result.map .1 |> Result.withDefault 0
+
+                # expand the current node neighbors
                 when graph current is
                     Ok neighbors ->
-                        # filter out all seen neighbors
-                        filtered = List.keepIf neighbors (\n -> !(Set.contains seen n))
-
-                        # newly explored nodes are added to the FIFO queue
-                        newQueue = List.concat rest filtered
-
-                        # the new nodes are also added to the seen set
-                        newSeen = List.walk filtered seen Set.insert
-
-                        newParents : Dict a a
-                        newParents = List.walk filtered parents \accum, discovered ->
-                            Dict.insert accum discovered current
-
-                        bfsHelper isTarget newQueue newSeen newParents graph
+                        # step with our current neighbor list
+                        next = step neighbors rest current currentCost
+                        # and recurse with updated values
+                        aStarHelper isTarget estimator next.stack next.costs next.parents graph
 
                     Err _ ->
-                        bfsHelper isTarget rest seen parents graph
+                        # no neighbors, keep going
+                        aStarHelper isTarget estimator rest costs parents graph
 
-# Test BFS with multiple paths
+## aStar finds shortest path to "C"
 expect
     actual =
-        bfs (\v -> Str.startsWith v "C") "A" testGraph2
-        |> Result.map .0
-    expected = Ok "Ccorrect"
+        aStar (\v -> Str.startsWith v "C") constZero "A" testGraphMultipath
+    expected = Ok ("C", ["A", "C"])
+    actual == expected
+
+# ## It finds the one starting with "B"
+expect
+    actual =
+        aStar (\v -> Str.startsWith v "B") constZero "A" testGraph2
+    expected = Ok ("B", ["A", "B"])
 
     actual == expected
 
+# ## It finds the shortest path
 expect
-    actual =
-        dfs (\v -> Str.startsWith v "X") "A" testGraphMultipath
-    expected = Ok ("XYZ",  ["A", "D", "H", "XYZ"])
-
-    actual == expected
-
-expect
-    actual =
-        bfs (\v -> Str.startsWith v "X") "A" testGraphMultipath
-    expected = Ok ("XYZ",  ["A", "B", "XYZ"])
+    actual = aStar (\v -> Str.startsWith v "X") constZero "A" testGraphMultipath
+    expected = Ok ("XYZ", ["A", "B", "XYZ"])
     actual == expected
 
 testGraphMultipath =

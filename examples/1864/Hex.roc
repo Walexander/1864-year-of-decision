@@ -2,18 +2,18 @@ module [Doubled, Point, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, 
 import Graph
 import w4.Sprite
 
-Point : { x : I16, y : I16 }
+Point : { x : I32, y : I32 }
 Doubled : {
     row : I32,
     column : I32,
 }
-hexWidth : I16
+hexWidth : I32
 hexWidth = 12
-hexHeight : I16
+hexHeight : I32
 hexHeight = 6
-halfWidth : I16
+halfWidth : I32
 halfWidth = 6
-halfHeight : I16
+halfHeight : I32
 halfHeight = 3
 
 doubled : I32, I32 -> Doubled
@@ -22,14 +22,10 @@ doubled = \column, row ->
 
 hexToPixel : Doubled -> Point
 hexToPixel = \{ row, column } -> {
-    x: column |> Num.toI16 |> Num.mul hexWidth |> Num.add 2 |> Num.toI16,
-    y: row |> Num.toI16 |> Num.mul hexHeight |> Num.add 3 |> Num.toI16,
+    x: column |> Num.mul hexWidth |> Num.add 2,
+    y: row |> Num.mul hexHeight |> Num.add 3,
 }
 
-##
-##     DoubledCoord(+2,  0), DoubledCoord(+1, -1),
-#    DoubledCoord(-1, -1), DoubledCoord(-2,  0),
-#    DoubledCoord(-1, +1), DoubledCoord(+1, +1),
 add = \a, b -> doubled (a.column + b.column) (a.row + b.row)
 clampCube = \min, max -> \cell ->
         cell.column
@@ -42,7 +38,7 @@ clampCube = \min, max -> \cell ->
         <= max.row
 
 minCell = doubled 0 0
-maxCell = doubled 12 12
+maxCell = doubled 12 16
 clamped = clampCube minCell maxCell
 expect
     clamped (doubled 0 0)
@@ -53,7 +49,7 @@ expect
     clamped (doubled 13 0)
     |> Bool.not
 expect
-    clamped (doubled 0 13)
+    clamped (doubled 0 17)
     |> Bool.not
 expect
     clamped (doubled 0 -1)
@@ -109,7 +105,13 @@ findGraph = \from, to, isBlocked ->
             (
                 neighborsOf cell |> List.dropIf isBlocked
             )
-    Graph.aStar (\c -> c == to) from graph |> Result.map .1
+    Graph.aStar2 {
+        isTarget: \c -> c == to,
+        estimator: \candidate -> hexDistance candidate to,
+        root: from,
+        graph,
+    }
+    |> Result.map .1
 
 ## Should Err when all blocked
 expect
@@ -121,14 +123,12 @@ expect
     expected = Err NotFound
     actual == expected
 
-## Should Return path when available
+## findGraph should return a single item
+## when from and to are equal
 expect
-    actual =
-        findGraph
-            (doubled 12 12)
-            (doubled 12 12)
-            (\_ -> Bool.false)
-    expected = Ok [doubled 12 12]
+    cell = doubled 12 12
+    actual = findGraph cell cell (\_ -> Bool.false)
+    expected = Ok [cell]
     actual == expected
 
 ## findGraph should Err when out of bounds
@@ -141,7 +141,7 @@ expect
     expected = Err NotFound
     actual == expected
 
-## Should find one hop away
+## findGraph should find one hop away
 expect
     actual =
         findGraph
@@ -150,7 +150,6 @@ expect
             (\_ -> Bool.false)
     expected = Ok [doubled 0 0, doubled 0 2]
     actual == expected
-# expected = Ok [(doubled 0 0) (doubled 2 2)]
 
 ## findGraph should return straight line when none blocked
 expect
@@ -212,8 +211,8 @@ lerp = \a, b, t ->
     (bb - aa) |> Num.mul t |> Num.add aa
 
 drawHex = \cell, point, sprite ->
-    x = point.x |> Num.add (cell.column |> Num.toI16 |> Num.mul hexWidth) |> Num.sub halfWidth
-    y = point.y |> Num.add (cell.row |> Num.toI16 |> Num.mul hexHeight) |> Num.sub halfHeight
+    x = point.x |> Num.add (cell.column |> Num.mul hexWidth) |> Num.sub halfWidth
+    y = point.y |> Num.add (cell.row |> Num.mul hexHeight) |> Num.sub halfHeight
     Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
 
 # _pixelToHex = \{ x, y } ->
