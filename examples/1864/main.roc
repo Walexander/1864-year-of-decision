@@ -9,7 +9,9 @@ import Assets
 import Hex exposing [Doubled, hexWidth, hexHeight, doubled, drawHex, lerp]
 
 UnitId : I8
-MoveChoice : [Selected UnitId, Destination (UnitId, Doubled), Finished]
+MoveChoice : [
+    Selected UnitId,
+    Destination (UnitId, Doubled), Finished]
 LaunchPad : List Doubled
 LaunchPads : List LaunchPad
 
@@ -63,7 +65,7 @@ GameOverState : {
     elapsed: U32,
 }
 GameState : {
-    # obstacles: List Doubled,
+    obstacles: List Doubled,
     launchTimer : U16,
     units : List Unit,
     launchIn : U16,
@@ -79,10 +81,20 @@ GameState : {
 }
 
 palette = {
-    color1: 0xf6c6a8,
-    color2: 0x5b768d,
-    color3: 0xd17c7c,
-    color4: 0x46425e,
+    # color1: 0xf6c6a8,
+    # color2: 0x5b768d,
+    # color3: 0xd17c7c,
+    # color4: 0x46425e,
+    color1: 0xfce4a8,
+    color2: 0x71969f,
+    color3: 0xd71a21,
+    color4: 0x01334e,
+}
+redPosterPalette = {
+    color1: 0xe8d6c0,
+    color2: 0x92938d,
+    color3: 0xa1281c,
+    color4: 0x000000,
 }
 
 redAlert = 0xc4181f
@@ -94,22 +106,27 @@ greenAlert = 0x426e5d
 #     color4: redAlert,
 # }
 unionPalette = palette
-confederatePalette = {
-    color1: 0xfafbf6,
-    color2: 0x565a75,
-    color3: 0xc6b7be,
-    color4: 0x0f0f1b,
-}
+confederatePalette = redPosterPalette
+# {
+#     # color1: 0xfafbf6,
+#     # color2: 0x565a75,
+#     # color3: 0xc6b7be,
+#     # color4: 0x0f0f1b,
+#     color1: 0xf6c6a8,
+#     color2: 0x5b768d,
+#     color3: 0xd17c7c,
+#     color4: 0x46425e,
+# }
 main = { init, update }
 initialUnits =
     unit1 = {
         id: 0,
-        position: Hex.hexToPixel (doubled 1 3),
+        position: Hex.hexToPixel (doubled 0 0),
         moveRate: 120,
         lastPath: [],
         army: Union,
-        cell: doubled 0 4,
-        dest: doubled 1 3,
+        cell: doubled 0 0,
+        dest: doubled 9 1,
         sprite: Assets.infantry,
     }
     dest2 = doubled 3 3
@@ -137,7 +154,17 @@ initialUnits =
         dest: unitDest,
         sprite: Assets.cannon,
     }
-    [unit1, unit2, unit3]
+    unit4 = {
+        id: 3,
+        moveRate: 30,
+        army: Confederates,
+        lastPath: [],
+        position: Hex.hexToPixel (doubled 9 3),
+        cell: doubled 9 3,
+        dest: doubled 9 3,
+        sprite: Assets.horsey
+    }
+    [unit1, unit2, unit3, unit4]
 
 defaultGamepad : W4.Gamepad
 defaultGamepad = {
@@ -156,21 +183,25 @@ getFirstMove = \forArmy, units ->
 
 newGame : GameState
 newGame =
-    launchIn = 900
+    launchIn = 60 * 1 * 20
     units = initialUnits
     unionMove = getFirstMove Union initialUnits
     confederateMove = getFirstMove Confederates initialUnits
     {
         units,
-        launchIn: 900,
+        launchIn,
         moves: {
             union: unionMove,
             confederate: confederateMove,
         },
-        # obstacles: [],
+        obstacles: [
+            # doubled 5 3, doubled 6 4,doubled 7 3,
+            doubled 5 5, doubled 6 6,doubled 7 5,
+            doubled 5 7, doubled 6 8,doubled 7 7,
+        ],
         launchTimer: launchIn,
         hovering : {
-            union: (doubled 0 0),
+            union: (doubled 4 0),
             confederate: (doubled 8 4),
         },
         launchPads: [
@@ -180,10 +211,9 @@ newGame =
                 doubled 4 10,
             ],
             [
-                doubled 5 1,
-                doubled 6 0,
-                doubled 7 1,
+                doubled 5 3,
                 doubled 6 2,
+                doubled 7 3,
             ],
             [
                 doubled 7 9,
@@ -192,27 +222,23 @@ newGame =
             ],
         ],
     }
+
+baseState : Model
+baseState = {
+    background: Assets.flame,
+    backgrounds: [ Assets.velvet, Assets.bloodMoon, Assets.dawn, Assets.flame ],
+    frameCount: Num.toU64 0,
+    palette: palette,
+    inputs: (defaultGamepad, defaultGamepad),
+    lastInputs: (defaultGamepad, defaultGamepad),
+    palettes: (palette, unionPalette, confederatePalette),
+    screenState: TitleScreen { ready: WaitingBoth }
+}
+
 init : Task Model []
 init =
     W4.setPalette! palette
-    screenState: ScreenState
-    screenState = TitleScreen {
-        ready: WaitingBoth,
-    }
-    baseState : Model
-    baseState = {
-        background: Assets.flame,
-        backgrounds: [ Assets.velvet, Assets.bloodMoon, Assets.dawn, Assets.flame ],
-        frameCount: Num.toU64 0,
-        palette: palette,
-        inputs: (defaultGamepad, defaultGamepad),
-        lastInputs: (defaultGamepad, defaultGamepad),
-        palettes: (palette, unionPalette, confederatePalette),
-        screenState,
-    }
-
     Task.ok baseState
-
 
 Point : { x : I16, y : I16 }
 
@@ -259,7 +285,7 @@ unitPathFromMove = \unit, move, isblocked ->
     when move is
         Destination (id, chosen) if id == unit.id ->
             if isblocked chosen then (unit.cell, [])
-            else (chosen, (Hex.findPath unit.cell chosen))
+            else (chosen, (Hex.findGraph unit.cell chosen isblocked |> Result.withDefault []))
         _ -> (unit.dest, unit.lastPath)
 
 updateUnit : Unit, U64, MoveChoice, (Doubled -> Bool) -> Unit
@@ -290,9 +316,10 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
                 position: { x: Num.floor x, y: Num.floor y },
                 dest: newDest
             }
-isCellOccupied : (List Unit) -> (Doubled -> Bool)
-isCellOccupied = \units -> \cell ->
+isCellOccupied : List Unit, List Doubled -> (Doubled -> Bool)
+isCellOccupied = \units, obstacles -> \cell ->
     List.any units \unit -> unit.cell == cell
+    || List.contains obstacles cell
 
 
 update : Model -> Task Model []
@@ -301,11 +328,25 @@ update = \model ->
     inputs = getPlayerInputs!
     screenState =
         when model.screenState is
-            GameOver state -> updateGameOver state
-            TitleScreen state -> updateTitle state inputs model.inputs model.frameCount
-            InGame state -> updateInGame state model.frameCount inputs model.inputs
-    drawBottomImage! model.background
-    updated = updateFrameCount { model & inputs, lastInputs: model.inputs } |> updateBackground
+            GameOver state ->
+                updateGameOver state model.frameCount
+            TitleScreen state ->
+                updateTitle state inputs model.inputs model.frameCount
+            InGame state ->
+                updateInGame state model.frameCount inputs model.inputs
+    # drawBottomImage! model.background
+    updated = updateFrameCount {
+        model &
+        inputs,
+        lastInputs: model.inputs
+    } |> updateBackground
+
+    task =
+        when model.screenState is
+            GameOver _ | InGame _ -> drawBottomImage updated.background
+            TitleScreen _ -> Task.ok {}
+
+    task!
     Task.map screenState \ss ->
         { updated & screenState: ss }
 
@@ -324,6 +365,34 @@ getPlayerInputs =
     p2 = W4.getGamepad! Player2
     Task.ok (p1, p2)
 
+padFor = \string, size ->
+    strLen = Str.countUtf8Bytes string
+    dbg string
+    dbg strLen
+    diff = (size - strLen)
+    if diff <= 0 then
+        ""
+    else
+        List.repeat " " diff
+        |> Str.joinWith ""
+
+leftPad = \string, size ->
+    padFor string size
+    |> Str.concat string
+
+rightPad = \string, size ->
+    Str.concat string (padFor string size)
+
+## Should left pad
+expect
+     actual = leftPad "123" 5
+     expected = "  123"
+     actual == expected
+expect
+     actual = rightPad "123" 5
+     expected = "123  "
+     actual == expected
+
 updateTitle = \state, inputs, lastInputs, frameCount ->
     netplay = W4.getNetplay!
     thePlayer = getCurrentPlayer netplay
@@ -336,12 +405,38 @@ updateTitle = \state, inputs, lastInputs, frameCount ->
     }
 
 
-    W4.setTextColors! { bg: None, fg: Color4 }
     textX = boardRect.x + 10
-    halfY = boardRect.height |> Num.toFrac |> Num.div 2 |> Num.sub 5 |> Num.round
+    halfY =
+        boardRect.height
+        |> Num.toFrac
+        |> Num.div 2
+        |> Num.sub 5
+        |> Num.round
 
-    msg = "$(frameCount |> frameCountToSeconds |> Num.round |> Num.toStr)"
-    msg |> W4.text! { x: textX, y: (boardRect.y + Num.toI32 boardRect.height) |> Num.sub 25 }
+    elapsedSeconds =
+        frameCount
+        |> frameCountToSeconds
+        |> Num.round
+        |> Num.toStr
+    W4.setShapeColors! { fill: Color4, border: Color4 }
+    offsetX : I32
+    offsetX = 32
+    W4.oval! {
+        x: 160 - offsetX - 5,
+        y: boardRect.y - 5,
+        width: 20,
+        height: 20
+    }
+
+
+    W4.setTextColors! { fg: Color1, bg: None }
+    size = Str.countUtf8Bytes elapsedSeconds
+    minusX = Num.toI32 (size - 1) * 2
+    elapsedSeconds |> W4.text! {
+        x: 160 - offsetX - minusX ,
+        y: (boardRect.y + 2)
+    }
+
 
     ready =
         when state.ready is
@@ -355,33 +450,60 @@ updateTitle = \state, inputs, lastInputs, frameCount ->
             WaitingBoth | BothReady -> state.ready
     readyMessage =
         when state.ready is
-            WaitingBoth -> "Press *\nto begin"
-            Ready readyArmy if readyArmy == army -> "...Waiting..."
-            Ready _ -> "Press X\nalready!"
+            WaitingBoth -> "Press \u(81) to begin"
+            Ready readyArmy if readyArmy == army -> "  ...Waiting..."
+            Ready _ -> "    Press \u(81)\nalready!"
             BothReady -> "Let's roc"
-    title =
+    title = armyName army
+    help =
         """
-          Playing as
-          $(armyName army)
+        Timer ticks when
+        either army
+        controls the
+        launch pads.
+        """
+    disclaimer =
+        """
+        Be in control
+        when the timer
+        hits 0 to win!
         """
 
-    # W4.setTextColors! { fg: Color3, bg: None }
-    title |> W4.text! { x: textX, y: halfY }
-    readyMessage |> W4.text! { x: textX, y: halfY + 22 }
-    # drawBottomImage! background
+    W4.setTextColors! { bg: Color4, fg: None }
+    gameName = " 1864! "
+    gameName |> W4.text! { x: textX, y: boardRect.y }
+    W4.setTextColors! { fg: Color2, bg: None }
+    title |> W4.text! { x: textX, y: halfY - 10}
+    # title |> W4.text! { x: textX + (7 * 8), y: boardRect.y }
+    readyMessage |> W4.text! { x: textX, y: halfY + 10}
 
+    W4.setTextColors! { fg: Color4, bg: None }
+    help |> W4.text! { x: 15, y: halfY + 25  }
+    W4.setTextColors! { fg: Color3, bg: None }
+    disclaimer |> W4.text! { x: 15, y: halfY + 65  }
     newState = when ready is
         BothReady -> InGame newGame
         _ -> TitleScreen { state & ready }
     Task.ok newState
 
 
-updateGameOver = \state ->
+updateGameOver = \state, frameCount ->
     { winner } = state
     color = armyColor winner
     name = armyName winner
-    winnerPalette = armyPalette winner
-    elapsed = Num.toFrac state.elapsed |> Num.div 60.0 |> Num.round |> Num.toStr
+    netplay = W4.getNetplay!
+    thePlayer = getCurrentPlayer netplay
+    theArmy = playerArmy thePlayer
+    elapsed = Num.toFrac state.elapsed |> Num.div 60.0 |> Num.round # |> Num.toStr
+    elapsedSince = Num.toFrac frameCount |> Num.div 60.0 |> Num.round
+    sinceOver = (elapsedSince - elapsed)
+
+    playerPalette = W4.getPalette!
+    winnerPalette =
+        if winner == theArmy then
+            { playerPalette & color2: greenAlert }
+        else
+            { playerPalette & color2: redAlert }
     W4.setPalette! winnerPalette
     # W4.setShapeColors! { border: Color4, fill: Color1 }
     W4.rect! { width: 140, height: 80, x: 10, y: 30 }
@@ -390,19 +512,21 @@ updateGameOver = \state ->
     W4.rect! { width: 138, height: 25, x: 11, y: 31 }
 
     W4.setTextColors! { fg: Color1, bg: None }
-    "The " |> Str.concat name
-    |> Str.concat "\nis victorious!!"
-    |> W4.text! { x: 17, y: 35 }
+    outcome =
+        if theArmy == winner then "WIN"
+        else "LOSE"
+    "You $(outcome)!!" |> W4.text! { x: 17, y: 35 }
     W4.setTextColors! { fg: Color4, bg: None }
     message =
         """
-        After $(elapsed)
+        After $(Num.toStr elapsed)
         long seconds,the
         $(name) Army
-        wins the Battle
-        of Petersberg!
+        wins.
         """
     message |> W4.text! { x: 17, y: 60 }
+    W4.setTextColors! { fg: Color1, bg: Color3 }
+    "  Restart in $(Num.toStr (5 - sinceOver)) " |> W4.text! {x: 12, y: 100 }
     (sprite, colors) = when winner is
         Union -> (Assets.dawn,  { primary: Color4, secondary: Color2, tertiary: Color3, quaternary: Color1 } )
         Confederates -> (Assets.flame, { primary: Color1, secondary: Color2, tertiary: Color3, quaternary: Color4 })
@@ -410,7 +534,8 @@ updateGameOver = \state ->
     W4.setDrawColors!  colors
     Sprite.blit! sprite { x: 0, y: 120 }
 
-    Task.ok (GameOver state)
+    next = if sinceOver > 5 then baseState.screenState else GameOver state
+    Task.ok next
 
 getUnitFromClickedCell = \units, selected, army ->
     List.findFirst units \u -> u.cell == selected && u.army == army
@@ -486,33 +611,39 @@ printPixel = \{x, y}, frameCount, msg ->
 updateInGame = \model, frameCount, inputs, lastInputs ->
     netplay = W4.getNetplay!
 
-    padOwners = List.map model.launchPads \pad -> getPadOwner model.units pad
+    padOwners = List.map model.launchPads \pad ->
+        getPadOwner model.units pad
+
     isNetplay = when netplay is
         Disabled -> Bool.false
         Enabled _ -> Bool.true
+
     thePlayer = getCurrentPlayer netplay
     theArmy = playerArmy thePlayer
     playerPalette = armyPalette theArmy
-
     launchStatus = getLaunchStatus padOwners
-    totalMs = model.launchIn |> frameCountToSeconds |> Num.mul 1000 |> Num.round
-    msRemaining = model.launchTimer |> frameCountToSeconds |> Num.mul 1000 |> Num.round
-    percentLeft = msRemaining |> Num.toFrac |> Num.div (Num.toFrac totalMs)
-    isRedAlert = (msRemaining % 1000) |> Num.toFrac |> Num.div 1000 |> \fractionSecond -> fractionSecond > percentLeft
+    totalMs =
+        model.launchIn
+        |> frameCountToSeconds
+        |> Num.mul 1000
+        |> Num.round
+    msRemaining =
+        model.launchTimer
+        |> frameCountToSeconds
+        |> Num.mul 1000
+        |> Num.round
+    percentLeft =
+        msRemaining
+        |> Num.toFrac
+        |> Num.div (Num.toFrac totalMs)
 
-    colors =
-        if msRemaining <= 15000 then
-            when launchStatus is
-                InControl winning if isRedAlert ->
-                    if winning == theArmy then
-                        { playerPalette & color4: greenAlert }
-                    else
-                        { playerPalette & color4: redAlert }
-                _ -> playerPalette
-        else
-            playerPalette
+    isRedAlert =
+        msRemaining
+        |> Num.rem 1000
+        |> Num.toFrac
+        |> Num.div 1000
+        |> \fractionSecond -> fractionSecond > percentLeft
 
-    W4.setPalette! colors
 
     launchTimer =
         if model.launchTimer <= 0 then
@@ -523,7 +654,7 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
                 StaleMate -> model.launchTimer
 
 
-    isOccupied = isCellOccupied model.units
+    isOccupied = isCellOccupied model.units model.obstacles
     pressed = {
         union: inputs.0.button1 && !lastInputs.0.button1,
         confederates: inputs.1.button1 && !lastInputs.1.button1,
@@ -536,7 +667,7 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
             isOccupied,
             wasPressed: pressed.union,
             hovering: unionHoverCell,
-            theArmy,
+            theArmy: Union,
             units: model.units,
         }
 
@@ -555,16 +686,28 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
             Union -> updateUnit u frameCount unionMove isOccupied
             Confederates -> updateUnit u frameCount confedMove isOccupied
 
-    launchStateColor =
-        when launchStatus is
-            InControl player -> armyColor player
-            StaleMate -> Color4
+#     launchStateColor =
+#         when launchStatus is
+#             InControl player -> armyColor player
+#             StaleMate -> Color4
 
+    colors =
+        if msRemaining <= 15000 then
+            when launchStatus is
+                InControl winning if isRedAlert ->
+                    if winning == theArmy then
+                        { playerPalette & color4: greenAlert }
+                    else
+                        { playerPalette & color4: redAlert }
+                _ -> playerPalette
+        else
+            playerPalette
 
+    W4.setPalette! colors
     # W4.setShapeColors! { border: Color4, fill: Color1 }
     # W4.rect! boardRect
 
-    W4.setShapeColors! { border: Color4, fill: None }
+    # W4.setShapeColors! { border: Color4, fill: None }
     # drawGrid! model.obstacles Assets.filledHex basePoint
 
     # Task.loop model.launchPads \pads ->
@@ -575,18 +718,22 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
         task!
         drawLaunchPad launchPad (getPadOwner model.units launchPad) Assets.hex
 
-    drawLaunchTimer! launchStateColor msRemaining totalMs
+    drawLaunchTimer! msRemaining totalMs
 
     drawPads!
 
     drawUnionMove =
         W4.setPrimaryColor! Color2
-        drawPlayerMove! unionMove unionHoverCell getUnitById Color2
+        drawPlayerMove! unionMove unionHoverCell getUnitById Color2 isOccupied
         W4.setTextColors! { bg: Color2, fg: None }
+        W4.text! "$(Num.toStr unionHoverCell.column),$(Num.toStr unionHoverCell.row)"
+            {x: boardRect.x + 4, y: (boardRect.y + boardRect.height - 25) |> Num.abs }
         drawHoverPositon unionHoverCell
+
+
     drawConfedMove =
         W4.setPrimaryColor! Color3
-        drawPlayerMove! confedMove confedHover getUnitById Color3
+        drawPlayerMove! confedMove confedHover getUnitById Color3 isOccupied
         W4.setTextColors! { bg: Color3, fg: None }
         drawHoverPositon confedHover
 
@@ -594,20 +741,15 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
     # `drawUnion |> Task.await \_ -> drawConfed`
     # is a compiler error right now
     #
-    drawBoth =
-        W4.setPrimaryColor! Color2
-        drawPlayerMove! unionMove unionHoverCell getUnitById Color2
-        W4.setTextColors! { bg: Color2, fg: None }
-        drawHoverPositon! unionHoverCell
-        W4.setPrimaryColor! Color3
-        drawPlayerMove! confedMove confedHover getUnitById Color3
-        W4.setTextColors! { bg: Color3, fg: None }
-        drawHoverPositon confedHover
-    # drawUserChoice!
-    # drawBoth = (
-    #     _ <- drawUnionMove,
-    #     _ <- drawConfedMove
-    # )
+    # drawBoth =
+    #     W4.setPrimaryColor! Color2
+    #     drawPlayerMove! unionMove unionHoverCell getUnitById Color2 isOccupied
+    #     W4.setTextColors! { bg: Color2, fg: None }
+    #     drawHoverPositon! unionHoverCell
+    #     W4.setPrimaryColor! Color3
+    #     drawPlayerMove! confedMove confedHover getUnitById Color3 isOccupied
+    #     W4.setTextColors! { bg: Color3, fg: None }
+    #     drawHoverPositon confedHover
 
     effect =
         if isNetplay && theArmy == Union then
@@ -615,12 +757,12 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
         else if isNetplay && theArmy == Confederates then
             drawConfedMove
         else
-            drawBoth
+            # drawBoth!
+            drawUnionMove
     effect!
     drawUnits! model.units basePoint model.moves.union
 
     printPixel! {x: 80, y: 113} frameCount "after"
-
 
     state = {
         model &
@@ -629,8 +771,8 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
             confederate: confedMove
         },
         hovering: {
-            confederate: confedHover,
             union: unionHoverCell,
+            confederate: confedHover,
         },
         launchTimer, units
     }
@@ -655,7 +797,7 @@ drawHoverPositon = \cell ->
     y = point.y |> Num.add (Num.toI16 boardRect.y) |> Num.sub (Num.toI16 height) |> Num.toI32
     W4.oval { x, y, height, width}
 
-drawPlayerMove = \move, hovering, get, color ->
+drawPlayerMove = \move, hovering, get, color, isBlocked ->
     W4.setPrimaryColor! color
     when move is
         Selected id ->
@@ -665,14 +807,20 @@ drawPlayerMove = \move, hovering, get, color ->
                 |> Result.map .lastPath
                 |> Result.withDefault []
             planned =
-                unit
-                |> Result.try \{dest, cell} ->
-                    if dest == hovering then Err OutOfBounds
-                    else Ok cell
-                |> Result.map \cell -> Hex.findPath cell hovering
-                |> Result.withDefault []
+                if isBlocked hovering then
+                    ([])
+                else
+                    unit
+                    |> Result.try \{dest, cell} ->
+                        if dest == hovering then Err OutOfBounds
+                        else Ok cell
+                    |> Result.try \cell ->
+                        # Hex.findGraph cell hovering isBlocked
+                        Ok (Hex.findPath cell hovering)
+                    |> Result.withDefault []
             drawPaths planned destination
         Finished | Destination (_, _) -> Task.ok {}
+
 
 updateMoveChoice : MoveChoice, _ -> MoveChoice
 updateMoveChoice =  \currentChoice, {hovering, theArmy, wasPressed, isOccupied, units} ->
@@ -680,7 +828,8 @@ updateMoveChoice =  \currentChoice, {hovering, theArmy, wasPressed, isOccupied, 
     resultChoice = when currentChoice is
         Destination (unitId, _) -> Ok (Selected unitId)
         Finished if wasPressed ->
-            List.findFirst units \{ cell, army } -> cell == hovering && army == theArmy
+            units
+            |> List.findFirst \{ cell, army } -> cell == hovering && army == theArmy
             |> Result.map \u -> (Selected u.id)
         Selected id if wasPressed ->
             List.get units (Num.toU64 id)
@@ -766,14 +915,30 @@ drawTitle = \point ->
     W4.text! " Year of Decision" { x: 10, y: 6 }
     resetColors!
 
-drawLaunchTimer = \color, remaining, total ->
-    W4.setTextColors! { bg: None, fg: color }
+drawLaunchTimer = \remaining, total ->
     totalWidth = hexWidth |> Num.mul 3 |> Num.sub hexWidth |> Num.toFrac
 
-    barX = Num.round (80 - ( totalWidth / 2 )) |> Num.sub Hex.halfWidth |> Num.toI32
-    barY = boardRect.height |> Num.toFrac |> Num.div 2 |> Num.round |> Num.add hexHeight |> Num.toI32
-    windowDims = {width: (totalWidth + 10) |> Num.round, height: 20, x: barX - 5, y: (barY - 11)|>Num.abs }
-    W4.setShapeColors! { border: Color2, fill: Color1 }
+    barX =
+        80 - ( totalWidth / 2 )
+        |> Num.round
+        |> Num.sub Hex.halfWidth
+        |> Num.toI32
+    barY =
+        boardRect.height
+        |> Num.toFrac
+        |> Num.div 2
+        |> Num.round
+        |> Num.add hexHeight
+        |> Num.add 2
+        |> Num.toI32
+    windowDims = {
+        width: (totalWidth + 10) |> Num.round,
+        height: 20,
+        x: barX - 5,
+        y: (barY - 9) |>Num.abs
+    }
+
+    W4.setShapeColors! { border: Color2, fill: Color4 }
     W4.rect! windowDims
     msg =
         if remaining <= 0 then
@@ -792,17 +957,20 @@ drawLaunchTimer = \color, remaining, total ->
             baseX - 5
         else
             baseX
-    W4.setTextColors! { bg: None, fg: Color4 }
-    msg |> W4.text! { x, y: 49 }
     width =
         (Num.toFrac (total - remaining))
         |> Num.div (Num.toFrac total)
         |> Num.mul totalWidth
         |> Num.round
-    W4.setShapeColors! { border: Color4, fill: None }
-    W4.rect! { x: barX, y: barY, width: Num.round totalWidth, height: 5 }
-    W4.setShapeColors! { border: Color4, fill: color }
-    W4.rect! { x: barX, y: barY, width, height: 5 }
+
+    W4.setShapeColors! { border: Color2, fill: None }
+    W4.rect! { x: barX, y: barY + 4, width: Num.round totalWidth, height: 5 }
+
+    W4.setShapeColors! { border: Color1, fill: Color3 }
+    W4.rect! { x: barX, y: barY + 4, width, height: 5 }
+
+    W4.setTextColors! { bg: None, fg: Color1 }
+    msg |> W4.text! { x, y: barY - 6 |> Num.abs }
 
 drawLaunchPad = \pad, owner, sprite ->
     color =
