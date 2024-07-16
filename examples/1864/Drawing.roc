@@ -1,10 +1,9 @@
-module [ drawPads, drawBottomImage, drawTitle, drawUnits, drawBoardRect, drawPlayerMove, drawHoverPositon, drawGrid, drawLaunchPad, drawLaunchTimer, drawGameTime ]
+module [drawPads, drawBottomImage, drawTitle, drawUnits, drawBoardRect, drawPlayerMove, drawHoverPositon, drawGrid, drawLaunchPad, drawLaunchTimer, drawGameTime]
 import w4.W4
 import w4.Sprite
 import w4.Task exposing [Task]
 import Assets
 import Hex
-
 
 basePoint : Hex.Point
 basePoint = { x: 5, y: 20 }
@@ -13,7 +12,7 @@ boardRect = {
     x: basePoint.x |> Num.toI32,
     y: basePoint.y |> Num.toI32,
     width: Num.toU32 150,
-    height: Num.toU32 100
+    height: Num.toU32 100,
 }
 
 drawPads = \launchPads, getOwner ->
@@ -29,16 +28,16 @@ drawGameTime = \elapsedSeconds ->
         x: 160 - offsetX - 10,
         y: boardRect.y - 5,
         width: 30,
-        height: 20
+        height: 20,
     }
     W4.setTextColors! { fg: Color1, bg: None }
     size = Str.countUtf8Bytes elapsedSeconds
     minusX = Num.toI32 (size - 1) * 4
-    elapsedSeconds |> W4.text! {
-        x: 160 - offsetX - minusX ,
-        y: (boardRect.y + 2)
-    }
-
+    elapsedSeconds
+        |> W4.text! {
+            x: 160 - offsetX - minusX,
+            y: (boardRect.y + 2),
+        }
 
 drawBoardRect = \rect ->
     W4.setShapeColors! { fill: Color3, border: Color3 }
@@ -95,7 +94,7 @@ drawHoverPositon = \cell ->
     height = yoffset * 2 |> Num.toU32
     x = point.x |> Num.add (boardRect.x) |> Num.toI32 |> Num.sub xoffset |> Num.toI32
     y = point.y |> Num.add (Num.toI32 boardRect.y) |> Num.sub (Num.toI32 height) |> Num.toI32
-    W4.oval { x, y, height, width}
+    W4.oval { x, y, height, width }
 
 drawPlayerMove = \move, hovering, get, color, isBlocked ->
     W4.setPrimaryColor! color
@@ -108,45 +107,56 @@ drawPlayerMove = \move, hovering, get, color, isBlocked ->
                 |> Result.withDefault []
             planned =
                 if isBlocked hovering then
-                    ([])
+                    []
                 else
                     unit
-                    |> Result.try \{dest, cell} ->
-                        if dest == hovering then Err OutOfBounds
-                        else Ok cell
+                    |> Result.try \{ dest, cell } ->
+                        if dest == hovering then
+                            Err OutOfBounds
+                        else
+                            Ok cell
                     |> Result.try \cell ->
-                        # Hex.findGraph cell hovering isBlocked
                         Ok (Hex.findPath cell hovering)
                     |> Result.withDefault []
             drawPaths planned destination
+
         Finished | Destination (_, _) -> Task.ok {}
 
-drawUnit = \unit, bp, choice ->
+drawUnit = \unit, bp, choice, theArmy ->
     drawTo = {
         x: (unit.position.x + bp.x - 4) |> Num.toI32,
         y: (unit.position.y + bp.y - 4) |> Num.toI32,
-        flags: if unit.army == Confederates then
-            [FlipX]
-        else
-            [],
+        flags:
+            if unit.army != theArmy then
+                [FlipX]
+            else
+                []
     }
     border = armyColor unit.army
     fill =
-        if unit.army == Confederates then
+        if unit.army == theArmy then
             Color4
         else
             when choice is
-                Selected id -> if unit.id == id then Color4 else None
+                Selected id -> if unit.id == id then Color2 else None
                 _ -> None
+
     W4.setShapeColors { border, fill }
     |> Task.await \_ -> Sprite.blit unit.sprite drawTo
 
-drawUnits = \units, bp, choice ->
+drawUnits = \units, bp, choice, theArmy ->
     List.walk units (Task.ok {}) \task, unit ->
         task!
-        drawUnit unit bp choice
+        drawUnit unit bp choice theArmy
+
 resetColors =
-    W4.setDrawColors { primary: Color1, secondary: Color2, tertiary: Color3, quaternary: Color4 }
+    W4.setDrawColors {
+        primary: Color1,
+        secondary: Color2,
+        tertiary: Color3,
+        quaternary: Color4
+    }
+
 drawBottomImage = \sprite ->
     # W4.setShapeColors! { border: Color4, fill: Color1 }
     # W4.rect! {
@@ -184,8 +194,8 @@ drawLaunchTimer = \remaining, total ->
         |> Num.toFrac
         |> Num.div 2
         |> Num.round
-        |> Num.sub (Num.round (Num.toFrac launchWindowHeight/2))
-        |> Num.sub (Num.round (Num.toFrac Hex.hexHeight/2))
+        |> Num.sub (Num.round (Num.toFrac launchWindowHeight / 2))
+        |> Num.sub (Num.round (Num.toFrac Hex.hexHeight / 2))
         |> Num.add 1
         |> Num.toI32
 
@@ -193,9 +203,8 @@ drawLaunchTimer = \remaining, total ->
         width: launchWindowWidth |> Num.round,
         height: launchWindowHeight,
         x: barX,
-        y: barY
+        y: barY,
     }
-
     W4.setShapeColors! { border: Color2, fill: Color4 }
     W4.rect! windowDims
     msg =
@@ -206,8 +215,12 @@ drawLaunchTimer = \remaining, total ->
             |> Num.toFrac
             |> Num.div 100
             |> Num.round
-            |> Num.toFrac |> Num.div 10 |> Num.toStr |> Str.replaceFirst "0" ""
-        else # if remaining < 15_000 then
+            |> Num.toFrac
+            |> Num.div 10
+            |> Num.toStr
+            |> Str.replaceFirst "0" ""
+        else
+            # if remaining < 15_000 then
             remaining |> Num.toFrac |> Num.div 1000 |> Num.round |> Num.toStr
     width =
         (Num.toFrac (total - remaining))
@@ -221,7 +234,6 @@ drawLaunchTimer = \remaining, total ->
         |> Num.sub (Num.round ((totalWidth) / 2))
 
     timerSize = Str.countUtf8Bytes msg
-
     W4.setShapeColors! { border: Color2, fill: None }
     launchBarX = baseX
     launchBarY =
@@ -235,13 +247,13 @@ drawLaunchTimer = \remaining, total ->
         width: Num.round totalWidth,
         height: 6,
     }
-
     W4.rect! launchBar
     W4.setShapeColors! { border: Color1, fill: Color3 }
     # W4.rect! { x: baseX, y: barY + 8, width, height: 5 }
     W4.rect! { launchBar & width }
 
-    x = Num.toFrac windowDims.x
+    x =
+        Num.toFrac windowDims.x
         |> Num.add (Num.toFrac windowDims.width / 2)
         |> Num.sub (Num.toFrac timerSize |> Num.mul 8 |> Num.div 2)
         |> Num.round
