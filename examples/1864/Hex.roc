@@ -1,4 +1,4 @@
-module [Doubled, Point, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, findGraph]
+module [Doubled, Point, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, findGraph]
 import Graph
 import w4.Sprite
 

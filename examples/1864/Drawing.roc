@@ -1,9 +1,10 @@
-module [drawPads, drawBottomImage, drawTitle, drawUnits, drawBoardRect, drawPlayerMove, drawHoverPositon, drawGrid, drawLaunchPad, drawLaunchTimer, drawGameTime]
+module [drawPads, resetColors, drawBottomImage, drawTitle, drawUnits, drawBoardRect, drawPlayerMove, drawHoverPositon, drawGrid, drawLaunchPad, drawLaunchTimer, drawGameTime]
 import w4.W4
 import w4.Sprite
 import w4.Task exposing [Task]
 import Assets
 import Hex
+import Health
 
 basePoint : Hex.Point
 basePoint = { x: 5, y: 20 }
@@ -19,7 +20,6 @@ drawPads = \launchPads, getOwner ->
     List.walk launchPads (Task.ok {}) \task, launchPad ->
         task!
         drawLaunchPad launchPad (getOwner launchPad) Assets.hex
-
 drawGameTime = \elapsedSeconds ->
     W4.setShapeColors! { fill: Color2, border: Color4 }
     offsetX : I32
@@ -87,14 +87,15 @@ drawPaths = \primaryPath, destPath ->
 
 drawHoverPositon = \cell ->
     point = Hex.hexToPixel cell
-    xoffset = Hex.halfWidth |> Num.toFrac |> Num.div 2 |> Num.round
-    yoffset = Hex.halfHeight |> Num.toFrac |> Num.div 2 |> Num.round
+    # xoffset = Hex.halfWidth |> Num.toFrac |> Num.div 2 |> Num.round
+    # yoffset = Hex.halfHeight |> Num.toFrac |> Num.div 2 |> Num.round
 
-    width = xoffset * 2 |> Num.toU32
-    height = yoffset * 2 |> Num.toU32
-    x = point.x |> Num.add (boardRect.x) |> Num.toI32 |> Num.sub xoffset |> Num.toI32
-    y = point.y |> Num.add (Num.toI32 boardRect.y) |> Num.sub (Num.toI32 height) |> Num.toI32
-    W4.oval { x, y, height, width }
+    # # width = xoffset * 2 |> Num.toU32
+    # height = yoffset * 2 |> Num.toU32
+    x = point.x |> Num.add boardRect.x
+    y = point.y |> Num.add boardRect.y
+    W4.line! { x: x - 2, y: y } { x: x + 2, y }
+    W4.line { x: x, y: y - 2 } { x, y: y  + 2 }
 
 drawPlayerMove = \move, hovering, get, color, isBlocked ->
     W4.setPrimaryColor! color
@@ -123,14 +124,17 @@ drawPlayerMove = \move, hovering, get, color, isBlocked ->
         Finished | Destination (_, _) -> Task.ok {}
 
 drawUnit = \unit, bp, choice, theArmy ->
-    drawTo = {
+    point = {
         x: (unit.position.x + bp.x - 4) |> Num.toI32,
         y: (unit.position.y + bp.y - 4) |> Num.toI32,
-        flags:
-            if unit.army != theArmy then
-                [FlipX]
-            else
-                []
+    }
+    drawTo = {
+        x: point.x,
+        y: point.y,
+        flags: if unit.army != theArmy then
+            [FlipX]
+        else
+            [],
     }
     border = armyColor unit.army
     fill =
@@ -143,18 +147,50 @@ drawUnit = \unit, bp, choice, theArmy ->
 
     W4.setShapeColors { border, fill }
     |> Task.await \_ -> Sprite.blit unit.sprite drawTo
+    |> Task.await \_ ->
+        when unit.health is
+            Living hp ->
+                drawHealthBar hp {
+                    x: point.x - 2,
+                    y: point.y + Hex.hexHeight + 3,
+                }
+
+            Dead _ -> Task.ok {}
 
 drawUnits = \units, bp, choice, theArmy ->
     List.walk units (Task.ok {}) \task, unit ->
         task!
         drawUnit unit bp choice theArmy
 
+drawHealthBar : Health.Health, Hex.Point -> _
+drawHealthBar = \health, point ->
+    height = Num.toU32 3
+    width = Hex.hexWidth |> Num.toFrac |> Num.round |> Num.toU32
+    baseRect = {
+        width,
+        height,
+        x: point.x |> Num.toI32,
+        y: point.y |> Num.toI32,
+    }
+    healthPercent = Health.health health
+    healthBar = Num.toFrac width |> Num.mul healthPercent |> Num.round
+    healthRect = {
+        height,
+        width: healthBar |> Num.toU32,
+        x: baseRect.x,
+        y: baseRect.y,
+    }
+    W4.setShapeColors! { fill: Color3, border: Color1 }
+    W4.rect! baseRect
+    W4.setShapeColors! { fill: Color2, border: None }
+    W4.rect healthRect
+
 resetColors =
     W4.setDrawColors {
         primary: Color1,
         secondary: Color2,
         tertiary: Color3,
-        quaternary: Color4
+        quaternary: Color4,
     }
 
 drawBottomImage = \sprite ->
@@ -169,12 +205,13 @@ drawBottomImage = \sprite ->
     resetColors!
     Sprite.blit! sub { x: 2, y: 160 - 45 }
 
+
 drawTitle = \point ->
     W4.setShapeColors! { border: Color2, fill: Color4 }
     W4.rect! { height: point.y - 5 |> Num.toU32, width: 160, x: 0, y: 0 }
     W4.setTextColors! { bg: None, fg: Color1 }
     W4.text! " Year of Decision" { x: 10, y: 3 }
-    resetColors!
+    resetColors
 
 drawLaunchTimer = \remaining, total ->
     totalWidth = Hex.hexWidth |> Num.mul 3 |> Num.sub Hex.hexWidth |> Num.toFrac
