@@ -1,6 +1,8 @@
-module [Doubled, Point, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, findGraph]
+module [Doubled, Point, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, findGraph, pointLerp]
 import Graph
+import w4.W4
 import w4.Sprite
+import w4.Task exposing [Task]
 
 Point : { x : I32, y : I32 }
 Doubled : {
@@ -185,6 +187,12 @@ hexDistance = \from, to ->
     drow = Num.sub from.row to.row |> Num.abs
     dcol + (Num.max 0 ((Num.sub drow dcol) |> Num.toFrac |> Num.div 2 |> Num.round))
 
+pointLerp : Point, Point, F32 -> Point
+pointLerp = \a, b, progress -> {
+    x: lerp (Num.toI32 a.x) (Num.toI32 b.x) progress |> Num.round,
+    y: lerp (Num.toI32 a.y) (Num.toI32 b.y) progress |> Num.round
+}
+
 cubeLerp : Doubled, Doubled -> List Doubled
 cubeLerp = \a, b ->
     n = hexDistance a b
@@ -195,8 +203,8 @@ cubeLerp = \a, b ->
     else
         List.walk xs [] \accum, i ->
             ii = mul |> Num.mul (Num.toFrac i)
-            row = (lerp a.row b.row ii) |> Num.floor
-            col = (lerp a.column b.column ii) |> Num.floor
+            row = (lerp a.row b.row ii) |> Num.round
+            col = (lerp a.column b.column ii) |> Num.round
             cell =
                 if (row + col) % 2 == 0 then
                     doubled col row
@@ -211,9 +219,19 @@ lerp = \a, b, t ->
     (bb - aa) |> Num.mul t |> Num.add aa
 
 drawHex = \cell, point, sprite ->
-    x = point.x |> Num.add (cell.column |> Num.mul hexWidth) |> Num.sub halfWidth
-    y = point.y |> Num.add (cell.row |> Num.mul hexHeight) |> Num.sub halfHeight
-    Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
+    x = point.x |> Num.add (cell.column |> Num.mul hexWidth) |> Num.sub halfWidth |> Num.toI32
+    y = point.y |> Num.add (cell.row |> Num.mul hexHeight) |> Num.sub halfHeight |> Num.toI32
+
+    # colors <- W4.getDrawColors |> Task.await
+    # W4.setShapeColors!{ fill: Color1, border: Color1 }
+    W4.rect {
+        x,
+        y,
+        height:
+        Num.toU32 (2 * hexHeight), width: Num.round (1.33 * Num.toFrac hexWidth) }
+    # W4.setShapeColors! colors
+    # W4.setDrawColors! colors
+    # Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
 
 # _pixelToHex = \{ x, y } ->
 #     base = 0.57735
