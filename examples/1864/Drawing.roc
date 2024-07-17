@@ -100,7 +100,7 @@ drawHoverPositon = \cell ->
 drawPlayerMove = \move, hovering, get, color, isBlocked ->
     W4.setPrimaryColor! color
     when move is
-        Selected id ->
+        Selected id _ ->
             unit = get id
             destination =
                 unit
@@ -108,16 +108,18 @@ drawPlayerMove = \move, hovering, get, color, isBlocked ->
                 |> Result.withDefault []
             planned =
                 if isBlocked hovering then
-                    []
+                     []
                 else
                     unit
-                    |> Result.try \{ dest, cell } ->
-                        if dest == hovering then
-                            Err OutOfBounds
-                        else
-                            Ok cell
-                    |> Result.try \cell ->
-                        Ok (Hex.findPath cell hovering)
+                    |> Result.map \u -> Hex.findPath u.cell hovering
+                    # |> Result.try \{ dest, cell } ->
+                    #     if dest == hovering then
+                    #         Err OutOfBounds
+                    #     else
+                    #         Ok cell
+                    # |> Result.try \cell ->
+                    #     Hex.findGraph cell hovering isBlocked
+                    #     # Ok (Hex.findPath cell hovering)
                     |> Result.withDefault []
             drawPaths planned destination
 
@@ -142,7 +144,7 @@ drawUnit = \unit, bp, choice, theArmy ->
             Color4
         else
             when choice is
-                Selected id -> if unit.id == id then Color2 else None
+                Selected id _ -> if unit.id == id then Color2 else None
                 _ -> None
 
     W4.setShapeColors { border, fill }
@@ -247,7 +249,7 @@ drawLaunchTimer = \remaining, total ->
     msg =
         if remaining <= 0 then
             ""
-        else if remaining < 1_000 then
+        else if remaining < 10_000 then
             remaining
             |> Num.toFrac
             |> Num.div 100
@@ -255,9 +257,7 @@ drawLaunchTimer = \remaining, total ->
             |> Num.toFrac
             |> Num.div 10
             |> Num.toStr
-            |> Str.replaceFirst "0" ""
         else
-            # if remaining < 15_000 then
             remaining |> Num.toFrac |> Num.div 1000 |> Num.round |> Num.toStr
     width =
         (Num.toFrac (total - remaining))

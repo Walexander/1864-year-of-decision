@@ -92,7 +92,10 @@ insertCost = \a, cost, costs ->
     List.append costs (a, cost)
 
 makeCosts : a -> CostDict a where a implements Hash & Eq
-makeCosts = \a -> [(a, 0)]
+makeCosts = \a -> [ (a, 0) ] |> List.reserve 64
+    # List.withCapacity 32 |> List.set 0 (a, 0)
+
+# [(a, 0)] |> List.reserveCapacity 32
 # Parents a : List (parent, child)
 Parents a : List (a, a) where a implements Hash & Eq
 findParentOf : a, Parents a -> Result a [NotFound] where a implements Eq & Hash
@@ -111,7 +114,7 @@ insertParent = \child, parent, parents ->
     List.append parents (parent, child)
 
 makeEmptyParents : _ -> Parents a where a implements Hash & Inspect & Eq
-makeEmptyParents = \_ -> []
+makeEmptyParents = \_ -> List.withCapacity 64
 
 ## Takes our Parents and a target node and returns a list of target nodes
 ## in order
@@ -121,7 +124,7 @@ makePathTo = \v, paths ->
         findParentOf p paths
         |> Result.map \a -> iter a (List.prepend ps a)
         |> Result.withDefault ps
-    iter v [v]
+    iter v ([v]  |> List.reserve 16)
 
 ## Perform a breadth-first search with a fixed cost of 1 for each step
 ## and an `Estimator` function to determine priority
@@ -137,7 +140,8 @@ aStar : (a -> Bool),
 aStar = \isTarget, estimator, root, graph ->
     initialCosts = makeCosts root
     initialParents = makeEmptyParents {}
-    aStarHelper isTarget estimator [root] initialCosts initialParents graph
+    stack = [root] |> List.reserve 64
+    aStarHelper isTarget estimator stack initialCosts initialParents graph
     |> Result.map \(t, paths) -> (t, makePathTo t paths)
 
 aStar2 : { isTarget : a -> Bool, root : a, graph : Graph2 a, estimator : Estimator a }
