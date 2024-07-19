@@ -1,4 +1,4 @@
-module [Doubled, Point, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, findGraph, pointLerp]
+module [Doubled, Point, clamp, hexDistance, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, findGraph, pointLerp]
 import Graph
 import w4.W4
 import w4.Sprite
@@ -42,6 +42,7 @@ clampCube = \min, max -> \cell ->
 minCell = doubled 0 0
 maxCell = doubled 12 16
 clamped = clampCube minCell maxCell
+
 expect
     clamped (doubled 0 0)
 expect
@@ -56,6 +57,86 @@ expect
 expect
     clamped (doubled 0 -1)
     |> Bool.not
+
+clamp = \test ->
+    c =
+        if test.column < minCell.column then
+            if minCell.column - test.column == 1 then
+                minCell.column + 1
+            else
+                minCell.column
+        else if test.column > maxCell.column then
+            if (test.column - maxCell.column) == 1 then
+                maxCell.column - 1
+            else
+                maxCell.column
+        else
+            test.column
+    r =
+        if test.row < minCell.row then
+            if minCell.row - test.row == 1 then
+                minCell.row + 1
+            else
+                minCell.row
+        else if test.row > maxCell.row then
+            if test.row - maxCell.row == 1 then
+                maxCell.row - 1
+            else
+                maxCell.row
+
+
+        else
+            test.row
+    { column: c, row: r }
+
+expect
+    actual = clamp (doubled 13 17)
+    expected = doubled 11 15
+    actual == expected
+
+expect
+    actual = clamp (doubled 14 18)
+    expected = doubled 12 16
+    actual == expected
+
+expect
+    actual = clamp (doubled 13 15)
+    expected = doubled 11 15
+    actual == expected
+expect
+    actual = clamp (doubled 1 17)
+    expected = doubled 1 15
+    actual == expected
+expect
+    actual = clamp (doubled -2 8)
+    expected = doubled 0 8
+    actual == expected
+
+expect
+    actual = clamp (doubled 14 8)
+    expected = doubled 12 8
+    actual == expected
+
+expect
+    actual = clamp (doubled 14 -2)
+    expected = doubled 12 0
+    actual == expected
+expect
+    clamp (doubled 12 18) == (doubled 12 16)
+
+expect
+    actual = clamp (doubled -4 -2)
+    expected = doubled 0 0
+    actual == expected
+## Clamp should maintain (r + c) % 2 == 0 invariant
+expect
+    actual = clamp (doubled -1 1)
+    expected = doubled 1 1
+    actual == expected
+expect
+    actual = clamp (doubled 3 -1)
+    expected = doubled 3 1
+    actual == expected
 
 doubleNeighbors = [
     doubled 0 2,
@@ -163,6 +244,14 @@ expect
     expected = Ok [doubled 0 0, doubled 0 2, doubled 0 4]
     actual == expected
 
+expect
+    actual =
+        findGraph
+            (doubled 1 1)
+            (doubled 3 0)
+            (\_ -> Bool.false)
+    expected = Err NotFound
+    actual == expected
 ## findGraph should return straight line horizontally
 expect
     actual =
@@ -190,7 +279,7 @@ hexDistance = \from, to ->
 pointLerp : Point, Point, F32 -> Point
 pointLerp = \a, b, progress -> {
     x: lerp (Num.toI32 a.x) (Num.toI32 b.x) progress |> Num.round,
-    y: lerp (Num.toI32 a.y) (Num.toI32 b.y) progress |> Num.round
+    y: lerp (Num.toI32 a.y) (Num.toI32 b.y) progress |> Num.round,
 }
 
 cubeLerp : Doubled, Doubled -> List Doubled
@@ -224,13 +313,15 @@ drawHex = \cell, point, sprite ->
 
     # colors <- W4.getDrawColors |> Task.await
     # W4.setShapeColors!{ fill: Color1, border: Color1 }
-    W4.rect {
-        x,
-        y,
-        height:
-        Num.toU32 (2 * hexHeight), width: Num.round (1.33 * Num.toFrac hexWidth) }
+    # W4.rect! {
+    #     x,
+    #     y,
+    #     height: Num.toU32 (2 * hexHeight),
+    #     width: Num.round (1.33 * Num.toFrac hexWidth),
+    # }
     # W4.setShapeColors! colors
     # W4.setDrawColors! colors
+    W4.oval { x, y, height: Num.toU32 (2 * hexHeight), width: Num.round (Num.toFrac hexWidth |> Num.mul 1.33)}
     # Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
 
 # _pixelToHex = \{ x, y } ->

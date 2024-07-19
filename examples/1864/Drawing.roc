@@ -75,15 +75,27 @@ drawPath = \path ->
         |> Result.map \to -> W4.line from to
         |> Result.withDefault (Task.ok {})
 
-drawPaths = \primaryPath, destPath ->
-    drawPath! (Hex.pathToLine destPath boardRect)
+drawPaths = \plannedPath, destPath, starting ->
+    position = {
+        x: starting.x + boardRect.x,
+        y: starting.y + boardRect.y
+    }
+
+    plannedLine =
+        Hex.pathToLine plannedPath boardRect
+        |> List.set 0 position
+    destLine = Hex.pathToLine destPath boardRect
+        |> List.set 0 position
+
+    drawPath! destLine
+
     _ <-
         List.last destPath
         |> Result.map \cell -> drawHoverPositon cell
         |> Result.withDefault (Task.ok {})
         |> Task.await
     W4.setPrimaryColor! Color4
-    drawPath (Hex.pathToLine primaryPath boardRect)
+    drawPath plannedLine
 
 drawHoverPositon = \cell ->
     point = Hex.hexToPixel cell
@@ -97,31 +109,16 @@ drawHoverPositon = \cell ->
     W4.line! { x: x - 2, y: y } { x: x + 2, y }
     W4.line { x: x, y: y - 2 } { x, y: y  + 2 }
 
-drawPlayerMove = \move, hovering, get, color, isBlocked ->
+drawPlayerMove = \move, _hovering, get, color, _isBlocked ->
     W4.setPrimaryColor! color
     when move is
-        Selected id _ ->
+        Selected id planned ->
             unit = get id
-            destination =
+            (starting, destination) =
                 unit
-                |> Result.map .lastPath
-                |> Result.withDefault []
-            planned =
-                if isBlocked hovering then
-                     []
-                else
-                    unit
-                    |> Result.map \u -> Hex.findPath u.cell hovering
-                    # |> Result.try \{ dest, cell } ->
-                    #     if dest == hovering then
-                    #         Err OutOfBounds
-                    #     else
-                    #         Ok cell
-                    # |> Result.try \cell ->
-                    #     Hex.findGraph cell hovering isBlocked
-                    #     # Ok (Hex.findPath cell hovering)
-                    |> Result.withDefault []
-            drawPaths planned destination
+                |> Result.map \{lastPath, position} -> (position, lastPath)
+                |> Result.withDefault ({ x: 0, y: 0}, [])
+            drawPaths planned destination starting
 
         Finished | Destination (_, _) -> Task.ok {}
 

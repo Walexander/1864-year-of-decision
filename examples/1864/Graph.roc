@@ -92,8 +92,8 @@ insertCost = \a, cost, costs ->
     List.append costs (a, cost)
 
 makeCosts : a -> CostDict a where a implements Hash & Eq
-makeCosts = \a -> [ (a, 0) ] |> List.reserve 64
-    # List.withCapacity 32 |> List.set 0 (a, 0)
+makeCosts = \a -> [(a, 0)]
+# List.withCapacity 32 |> List.set 0 (a, 0)
 
 # [(a, 0)] |> List.reserveCapacity 32
 # Parents a : List (parent, child)
@@ -124,7 +124,8 @@ makePathTo = \v, paths ->
         findParentOf p paths
         |> Result.map \a -> iter a (List.prepend ps a)
         |> Result.withDefault ps
-    iter v ([v]  |> List.reserve 16)
+    # iter v ([v] |> List.reserve 128)
+    iter v [v]
 
 ## Perform a breadth-first search with a fixed cost of 1 for each step
 ## and an `Estimator` function to determine priority
@@ -140,8 +141,9 @@ aStar : (a -> Bool),
 aStar = \isTarget, estimator, root, graph ->
     initialCosts = makeCosts root
     initialParents = makeEmptyParents {}
-    stack = [root] |> List.reserve 64
-    aStarHelper isTarget estimator stack initialCosts initialParents graph
+    stack = [root] # |> List.reserve 128
+    sorter = priorityWithEstimate estimator
+    aStarHelper isTarget sorter stack initialCosts initialParents graph
     |> Result.map \(t, paths) -> (t, makePathTo t paths)
 
 aStar2 : { isTarget : a -> Bool, root : a, graph : Graph2 a, estimator : Estimator a }
@@ -153,7 +155,8 @@ aStar2 = \{ isTarget, root, estimator, graph } ->
 # aStarHelper does not die
 expect
     dict = makeCosts "A"
-    actual = aStarHelper (\_ -> Bool.true) constZero ["A"] dict (makeEmptyParents {}) testGraph2
+    sorter = priorityWithEstimate constZero
+    actual = aStarHelper (\_ -> Bool.true) sorter ["A"] dict (makeEmptyParents {}) testGraph2
     Result.isOk actual
 
 ## aStar terminates with empty graph
@@ -195,58 +198,68 @@ expect
 # `parents`    : Parents object for tracking each node's parent
 # `graph`      : The graph to perform the search on.
 aStarHelper : (a -> Bool),
-    Estimator a,
+    Compare (a, I32),
     List a,
     CostDict a,
     Parents a,
     Graph2 a
     ->
     Result (a, Parents a) [NotFound]
-aStarHelper = \isTarget, estimator, stack, costs, parents, graph ->
-    sorter = priorityWithEstimate estimator
-    myStack =
-        List.keepOks stack \node -> findCost node costs
-        |> List.sortWith sorter
-        |> List.map .0
+aStarHelper = \isTarget, sorter, stack, costs, parents, graph ->
+    # myStack =
+    #     List.keepOks stack \node -> findCost node costs
+    #     |> List.sortWith sorter
+    #     |> List.map .0
 
     step = \neighbors, rest, current, currentCost ->
         filtered =
             neighbors # discard the nodes we have already *seen*
             |> List.keepIf (\n -> Result.isErr (findCost n costs))
+        newCosts = addCosts filtered currentCost costs
+        newStack =
+            List.concat rest filtered
+            |> List.keepOks \a -> findCost a newCosts
+            |> List.sortWith sorter
+            |> List.map .0
         # return a new search context
         {
-            stack: List.concat rest filtered,
+            stack: newStack,
             parents: addParents current filtered parents,
-            costs: addCosts filtered currentCost costs,
+            costs: newCosts,
+            # addCosts filtered currentCost costs,
         }
 
-    when myStack is
-        [] ->
-            # we have run out of nodes, Err
-            # but We're done!
-            Err NotFound
-
-        [current, ..] ->
-            # take the first node in the queue
-            rest = List.dropFirst myStack 1
+    when stack is
+        # we have run out of nodes, Err
+        # but We're done!
+        [] -> Err NotFound
+        # otherwise, take the first node and rest of our stack
+        [current, .. as rest] ->
             if isTarget current then
-                # We're done!
-                Ok (current, parents)
+                Ok (current, parents) ## Yay, we found it
             else
                 # get the cost to our current node
-                currentCost = findCost current costs |> Result.map .1 |> Result.withDefault 0
-
+                currentCost =
+                    findCost current costs
+                    |> Result.map .1
+                    |> Result.withDefault 0
                 # expand the current node neighbors
                 when graph current is
                     Ok neighbors ->
                         # step with our current neighbor list
                         next = step neighbors rest current currentCost
                         # and recurse with updated values
-                        aStarHelper isTarget estimator next.stack next.costs next.parents graph
+                        aStarHelper
+                            isTarget
+                            sorter
+                            next.stack
+                            next.costs
+                            next.parents
+                            graph
 
                     Err _ ->
                         # no neighbors, keep going
-                        aStarHelper isTarget estimator rest costs parents graph
+                        aStarHelper isTarget sorter rest costs parents graph
 
 ## aStar finds shortest path to "C"
 expect
