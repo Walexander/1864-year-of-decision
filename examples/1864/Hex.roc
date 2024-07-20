@@ -1,7 +1,7 @@
-module [Doubled, Point, clamp, hexDistance, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, findGraph, pointLerp]
+module [Doubled, Point, clamp, findGraph2, findGraph, hexDistance, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, pointLerp]
 import Graph
 import w4.W4
-import w4.Sprite
+# import w4.Sprite
 import w4.Task exposing [Task]
 
 Point : { x : I32, y : I32 }
@@ -180,20 +180,29 @@ expect
     ]
     actual == expected
 
+graph = \isBlocked -> \cell -> Ok (neighborsOf cell |> List.dropIf isBlocked)
 findPath = \from, to -> cubeLerp from to
 
-findGraph : Doubled, Doubled, (Doubled -> Bool) -> Result (List Doubled) [NotFound]
+findGraph : Doubled, Doubled, (Doubled -> Bool) -> _
 findGraph = \from, to, isBlocked ->
-    graph = \cell -> Ok
-            (
-                neighborsOf cell |> List.dropIf isBlocked
-            )
-    Graph.aStar2 {
+    Graph.astar {
+        isTarget: \c -> c == to,
+        estimator : \candidate -> hexDistance candidate to,
+        root: from,
+        graph: (graph isBlocked)
+    }
+    |> Result.map .1
+
+
+findGraph2 : Doubled, Doubled, (Doubled -> Bool) -> Result (List Doubled) [NotFound]
+findGraph2 = \from, to, isBlocked ->
+    Graph.astar3 {
         isTarget: \c -> c == to,
         estimator: \candidate -> hexDistance candidate to,
         root: from,
-        graph,
+        graph: (graph isBlocked),
     }
+    |> Result.mapErr \_ -> NotFound
     |> Result.map .1
 
 ## Should Err when all blocked
@@ -307,10 +316,9 @@ lerp = \a, b, t ->
     bb = Num.toFrac b
     (bb - aa) |> Num.mul t |> Num.add aa
 
-drawHex = \cell, point, sprite ->
+drawHex = \cell, point, _sprite ->
     x = point.x |> Num.add (cell.column |> Num.mul hexWidth) |> Num.sub halfWidth |> Num.toI32
     y = point.y |> Num.add (cell.row |> Num.mul hexHeight) |> Num.sub halfHeight |> Num.toI32
-
     # colors <- W4.getDrawColors |> Task.await
     # W4.setShapeColors!{ fill: Color1, border: Color1 }
     # W4.rect! {

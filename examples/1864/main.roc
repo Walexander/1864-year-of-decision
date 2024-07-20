@@ -932,30 +932,6 @@ updateMoveChoice =  \currentChoice, {hovering, theArmy, getUnitById, wasPressed,
                 |> Result.onErr \_ -> Ok Finished
             else
                 Ok (Selected id prevPath)
-            # List.last path
-            # |> Result.try \c ->
-            #     # if c == hovering then
-            #     #     Ok (Selected id path)
-            #     # else
-            # |> Result.onErr \_ -> Ok currentChoice
-        # Selected id path ->
-        #      last = List.last path
-        #      |> Result.mapErr \_ ->
-        #      when last is
-
-        #         Ok previous if previous == hovering -> Ok Selected id path
-        #         Ok _ | Err _ ->
-        #             getUnitById id
-        #             |> Result.try \{cell} -> Hex.findGraph cell hovering isOccupied
-        #             |> Result.map \newPath -> Selected id newPath
-                    # |> Result.mapErr \_ -> NotFound
-             # |> Result.try \previousHover ->
-             #     if previousHover == hovering then
-             #         Ok path
-             #     else
-             #         getUnitById id
-             #         |> Result.try \u -> Hex.findGraph u.cell hovering isOccupied
-             # |> Result.map \newPath -> Selected id newPath
         otherwise -> Ok otherwise
 
     resultChoice
