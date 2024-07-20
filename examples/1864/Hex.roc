@@ -1,7 +1,7 @@
 module [Doubled, Point, clamp, findGraph2, findGraph, hexDistance, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, pointLerp]
 import Graph
 import w4.W4
-# import w4.Sprite
+import w4.Sprite
 import w4.Task exposing [Task]
 
 Point : { x : I32, y : I32 }
@@ -315,6 +315,7 @@ lerp = \a, b, t ->
     aa = Num.toFrac a
     bb = Num.toFrac b
     (bb - aa) |> Num.mul t |> Num.add aa
+
 
 drawHex = \cell, point, _sprite ->
     x = point.x |> Num.add (cell.column |> Num.mul hexWidth) |> Num.sub halfWidth |> Num.toI32

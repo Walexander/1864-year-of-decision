@@ -144,6 +144,8 @@ drawUnit = \unit, bp, choice, theArmy ->
                 Selected id _ -> if unit.id == id then Color2 else None
                 _ -> None
 
+    W4.setShapeColors! { border: fill, fill: None }
+    blitHexagon! unit.cell { x: boardRect.x, y: boardRect.y + 1 } Assets.hex
     W4.setShapeColors { border, fill }
     |> Task.await \_ -> Sprite.blit unit.sprite drawTo
     |> Task.await \_ ->
@@ -159,6 +161,7 @@ drawUnit = \unit, bp, choice, theArmy ->
 drawUnits = \units, bp, choice, theArmy ->
     List.walk units (Task.ok {}) \task, unit ->
         task!
+
         drawUnit unit bp choice theArmy
 
 drawHealthBar : Health.Health, Hex.Point -> _
@@ -183,6 +186,12 @@ drawHealthBar = \health, point ->
     W4.rect! baseRect
     W4.setShapeColors! { fill: Color2, border: None }
     W4.rect healthRect
+
+
+blitHexagon = \cell, point, sprite ->
+    x = point.x |> Num.add (cell.column |> Num.mul Hex.hexWidth) |> Num.sub Hex.halfWidth |> Num.toI32
+    y = point.y |> Num.add (cell.row |> Num.mul Hex.hexHeight) |> Num.sub Hex.halfHeight |> Num.toI32
+    Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
 
 resetColors =
     W4.setDrawColors {

@@ -70,8 +70,6 @@ hex = Sprite.new {
 
 filledHex = Sprite.new {
     data: [
-        0b00000000,
-        0b00000000,
         0b00000111,
         0b11100000,
         0b00001111,
@@ -90,12 +88,10 @@ filledHex = Sprite.new {
         0b11110000,
         0b00000111,
         0b11100000,
-        0b00000000,
-        0b00000000,
     ],
     bpp: BPP1,
     width: 16,
-    height: 12,
+    height: 10,
 }
 
 # flame = Sprite.new {
