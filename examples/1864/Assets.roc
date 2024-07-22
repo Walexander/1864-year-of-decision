@@ -49,6 +49,7 @@ infantry = Sprite.new {
   ]
 }
 
+
 hex = Sprite.new {
     data: [
         0b00000111, 0b11100000,
