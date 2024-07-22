@@ -1,4 +1,4 @@
-module [ PriorityQueue, make, makeQ, sizeOf, pop, push ]
+module [PriorityQueue, make, makeQ, sizeOf, pop, push]
 
 # PriorityQueue a := {
 #     size: U64,
@@ -8,14 +8,14 @@ module [ PriorityQueue, make, makeQ, sizeOf, pop, push ]
 # make : Comparator a, U64 -> PriorityQueue a
 Comparator a : a, a -> [LT, EQ, GT]
 PriorityQueue a := {
-    comparator: Comparator a,
-    store: List a
+    comparator : Comparator a,
+    store : List a,
 }
 make = makeQ
 makeQ = \comparator -> @PriorityQueue {
-    comparator,
-    store: []
-}
+        comparator,
+        store: [],
+    }
 
 sizeOf = \@PriorityQueue { store } -> List.len store
 push = \@PriorityQueue { store, comparator }, a ->
@@ -24,19 +24,22 @@ push = \@PriorityQueue { store, comparator }, a ->
         |> swim (List.len store) a comparator
     @PriorityQueue {
         comparator,
-        store: newStore
+        store: newStore,
     }
 
 getStore = \@PriorityQueue { store } -> store
 
 pop = \@PriorityQueue { store, comparator } ->
     List.first store
-    |> Result.map \value -> (value, @PriorityQueue {
-        comparator,
-        store: List.dropFirst store 1 |> sink 0 comparator
-    })
+    |> Result.map \value -> (
+            value,
+            @PriorityQueue {
+                comparator,
+                store: List.dropFirst store 1 |> sink 0 comparator,
+            },
+        )
     |> Result.mapErr \_ -> EmptyQueue
-    # |> Result.withDefault (Err EmptyQueue, @PriorityQueue { store, comparator, size })
+# |> Result.withDefault (Err EmptyQueue, @PriorityQueue { store, comparator, size })
 
 sink = \store, index, comparator ->
     (leftIdx, rightIdx) = (index * 2 + 1, index * 2 + 2)
@@ -52,6 +55,7 @@ sink = \store, index, comparator ->
     when (left, right) is
         (LeftMissing, RightMissing) ->
             store
+
         (_, _) ->
             (newIndex, newValue) =
                 when (left, right) is
@@ -89,7 +93,8 @@ expect
         |> push 15
         |> push 10
     actual = getStore queue
-    actual == [ 10, 15 ]
+    actual == [10, 15]
+
 expect
     queue =
         makeQ Num.compare
@@ -118,25 +123,35 @@ expect
             |> Result.map \(v, q) -> (q, List.append accum v)
             |> Result.map Continue
             |> Result.withDefault (Break (aq, accum))
-    values.1 == [10, 20, 30, 65, 90]
-        && (sizeOf values.0) == 0
+    values.1 == [10, 20, 30, 65, 90] && (sizeOf values.0) == 0
 
-expect
-    actual = makeQ Num.compare |> push 65 |> pop |> Result.map .1 |> Result.try pop |> Result.map .0
-    actual == Err EmptyQueue
-
-
+# popping an empty queue returns Err EmptyQueue
 expect
     actual = makeQ Num.compare |> pop |> Result.map \(v, _) -> v
     expected = Err EmptyQueue
     actual == expected
-# expect
-#     (_, actual) =
-#         makeQ Num.compare
-#         |> push 15
-#         |> pop
 
-#     sizeOf (actual) == 0
+# Popping queue with one element returns an empty queue
+expect
+    actual =
+        makeQ Num.compare
+        |> push 15
+        |> pop
+        |> Result.map \(_, q) -> sizeOf q
+        |> Result.withDefault 12
+
+    actual == 0
+
+## popping a queue with one item twice returns an empty queue
+expect
+    actual =
+        makeQ Num.compare
+        |> push 65
+        |> pop
+        |> Result.map .1
+        |> Result.try pop
+        |> Result.map .0
+    actual == Err EmptyQueue
 # expect
 #     (_, actual) =
 #         makeQ Num.compare

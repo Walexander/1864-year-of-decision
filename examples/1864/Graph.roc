@@ -337,6 +337,22 @@ expect
     actual == expected
 
 astar3 = \{isTarget, estimator, graph, root} ->
+    stepFn = \neighbors, currentNode, nextStack, costs, parents ->
+        currentCost =
+            findCost currentNode costs
+            |> Result.map .1
+            |> Result.withDefault 0
+        neighbors
+        |> List.keepIf (\n -> Result.isErr (findCost n costs))
+        |> \newbies ->
+            addCosts newbies currentCost costs
+            |> \newCosts -> {
+                costs: newCosts,
+                parents: addParents currentNode newbies parents,
+                stack:
+                    List.map newbies \node -> (node, currentCost + (estimator node))
+                    |> List.walk nextStack \accum, value -> PriorityQueue.push accum value
+            }
     aStarHelper3 : PriorityQueue (a, I32), CostDict a, Parents a -> Result (a, Parents a) [NotFound]
     aStarHelper3 = \thisStack, costs, parents ->
         PriorityQueue.pop thisStack
@@ -347,22 +363,9 @@ astar3 = \{isTarget, estimator, graph, root} ->
                 when graph currentNode is
                     Err _ -> aStarHelper3 nextStack costs parents
                     Ok neighbors ->
-                        currentCost =
-                            findCost currentNode costs
-                            |> Result.map .1
-                            |> Result.withDefault 0
-                        neighbors
-                        |> List.keepIf (\n -> Result.isErr (findCost n costs))
-                        |> \newbies ->
-                            addCosts newbies currentCost costs
-                            |> \newCosts -> {
-                                costs: newCosts,
-                                parents: addParents currentNode newbies parents,
-                                stack:
-                                    List.map newbies \node -> (node, currentCost + (estimator node))
-                                    |> List.walk nextStack \accum, value -> PriorityQueue.push accum value
-                            }
-                        |> \stepResult -> aStarHelper3 stepResult.stack stepResult.costs stepResult.parents
+                        stepFn neighbors currentNode nextStack costs parents
+                        |> \stepResult ->
+                            aStarHelper3 stepResult.stack stepResult.costs stepResult.parents
         |> Result.mapErr \_ -> NotFound
 
     initialCosts = makeCosts root
