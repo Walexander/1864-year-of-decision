@@ -225,7 +225,8 @@ init =
 Unit : {
     id : I8,
     moveRate : F32,
-    cooldownRate: F32,
+    cooldownRate : F32,
+    attackDamage : U32,
     army : [Union, Confederates],
     health : [Living Health.Health, Dead U32],
     position : Hex.Point,
@@ -233,7 +234,7 @@ Unit : {
     dest : Doubled,
     sprite : Sprite,
     lastPath : List Doubled,
-    readiness: [Cooldown U32, Ready, Moving],
+    readiness : [Cooldown U32, Ready, Moving],
     range : U8,
 }
 
@@ -245,6 +246,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
         Artillery ->
             {
                 id,
+                attackDamage: 25u32,
                 army,
                 position,
                 readiness: Ready,
@@ -253,7 +255,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 dest: cell,
                 lastPath,
                 moveRate: 120,
-                cooldownRate: 150,
+                cooldownRate: 60.0,
                 range: 2,
                 sprite: Assets.cannon,
             }
@@ -261,6 +263,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
         Infantry ->
             {
                 id,
+                attackDamage: 15u32,
                 army,
                 position,
                 health: Living (Health.make 100),
@@ -269,7 +272,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 dest: cell,
                 lastPath,
                 moveRate: 90,
-                cooldownRate: 50,
+                cooldownRate: 50.0,
                 range: 8,
                 sprite: Assets.infantry,
             }
@@ -277,6 +280,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
         Cavalry ->
             {
                 id,
+                attackDamage: 8u32,
                 army,
                 position,
                 readiness: Ready,
@@ -285,7 +289,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 dest: cell,
                 lastPath,
                 moveRate: 60,
-                cooldownRate: 30,
+                cooldownRate: 30.0,
                 range: 1,
                 sprite: Assets.horsey,
             }
@@ -338,40 +342,44 @@ reroutePath = \newPath, lastPath, currentCell ->
         |> Result.map Moving
         |> Result.withDefault (StandingStill currentCell)
 
-    newNextStep = List.get newPath 1
+    newNextStep =
+        List.get newPath 1
         |> Result.map Moving
         |> Result.withDefault (NotMoving currentCell)
 
     when (lastNextStep, newNextStep) is
         (Moving prevCell, Moving nextCell) if prevCell == nextCell -> newPath
-        (Moving prevCell , Moving _) ->
-            List.concat [ currentCell, prevCell ] newPath
+        (Moving prevCell, Moving _) ->
+            List.concat [currentCell, prevCell] newPath
+
         (_, _) -> newPath
 
 ## reroutePath should no op when paths are the same
 expect
-    last = [ (Hex.doubled 0 0), (Hex.doubled 0 2) ]
-    next = [ (Hex.doubled 0 0), (Hex.doubled 0 2) ]
+    last = [Hex.doubled 0 0, Hex.doubled 0 2]
+    next = [Hex.doubled 0 0, Hex.doubled 0 2]
     actual = reroutePath next last (Hex.doubled 0 0)
     actual == next
 
 ## reroutePath returns new path when next step is same in both
 expect
-    last = [ (Hex.doubled 0 0), (Hex.doubled 0 2) ]
-    next = [ (Hex.doubled 0 0), (Hex.doubled 0 2), (Hex.doubled 0 4) ]
+    last = [Hex.doubled 0 0, Hex.doubled 0 2]
+    next = [Hex.doubled 0 0, Hex.doubled 0 2, Hex.doubled 0 4]
     actual = reroutePath next last (Hex.doubled 0 0)
     actual == next
 ## reroutePath prefixes current and next cell onto path when different
 expect
-    last = [ (Hex.doubled 0 0), (Hex.doubled 0 2) ]
-    next = [ (Hex.doubled 0 0), (Hex.doubled 2 0), (Hex.doubled 4 0) ]
+    last = [Hex.doubled 0 0, Hex.doubled 0 2]
+    next = [Hex.doubled 0 0, Hex.doubled 2 0, Hex.doubled 4 0]
     actual = reroutePath next last (Hex.doubled 0 0)
-    expected = [ (Hex.doubled 0 0), (Hex.doubled 0 2),
-        (Hex.doubled 0 0),
-        (Hex.doubled 2 0), (Hex.doubled 4 0),
-        ]
+    expected = [
+        Hex.doubled 0 0,
+        Hex.doubled 0 2,
+        Hex.doubled 0 0,
+        Hex.doubled 2 0,
+        Hex.doubled 4 0,
+    ]
     actual == expected
-
 
 updateUnit : Unit, U64, MoveChoice, (Doubled -> Bool) -> Unit
 updateUnit = \original, frameCount, move, cannotMoveTo ->
@@ -394,17 +402,18 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
 
     when marchingOrder is
         Stopped ->
-            readiness = when original.readiness is
-                Cooldown countdown if countdown > 0 -> Cooldown (countdown - 1)
-                Cooldown _ -> Ready
-                otherwise -> otherwise
+            readiness =
+                when original.readiness is
+                    Cooldown countdown if countdown > 0 -> Cooldown (countdown - 1)
+                    Cooldown _ -> Ready
+                    otherwise -> otherwise
             { original & readiness }
 
         DoneMoving finalDestination ->
             { original &
                 lastPath: List.dropFirst original.lastPath 1,
                 position: Hex.hexToPixel finalDestination,
-                readiness: Cooldown  (original.cooldownRate |> Num.round),
+                readiness: Cooldown (original.cooldownRate |> Num.round),
                 dest: finalDestination,
                 cell: finalDestination,
             }
@@ -450,10 +459,12 @@ unitPathFromMove = \unit, move, isblocked ->
             if isblocked chosen then
                 (unit.cell, unit.lastPath)
             else
-                path = Hex.findGraph unit.cell chosen isblocked
+                path =
+                    Hex.findGraph unit.cell chosen isblocked
                     |> Result.map \p -> reroutePath p unit.lastPath unit.cell
                     |> Result.withDefault []
                 (chosen, path)
+
         _ -> (unit.dest, unit.lastPath)
 
 isCellOccupied : List Unit, List Doubled -> (Doubled -> Bool)
@@ -501,7 +512,6 @@ update = \model ->
     Task.await screenState \ss ->
         Drawing.drawTitle boardRect
         |> Task.map \_ -> { updated & screenState: ss }
-
 
 updateFrameCount = \prev ->
     frameCount = Num.addWrap prev.frameCount 1
@@ -643,7 +653,6 @@ renderTitleScreen = \state, frameCount ->
     help |> W4.text! { x: 15, y: halfY + 25 }
     W4.setTextColors! { fg: Color3, bg: None }
     disclaimer |> W4.text { x: 15, y: halfY + 65 }
-
 
 renderGameOver = \state, frameCount ->
     restartIn = 5
@@ -814,12 +823,14 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
                 Union -> updateUnit u frameCount unionMove isOccupied
                 Confederates -> updateUnit u frameCount confedMove isOccupied
 
-        List.append accum
+        List.append
+            accum
             { unitUpdate & position: unitUpdate.position }
 
     combatUnits =
         if frameCount % 6 == 0 then
-            runCombat units |> List.keepIf \{ health } -> isAlive health
+            runCombat units
+            |> List.keepIf \{ health } -> isAlive health
         else
             units
     nextState =
@@ -865,17 +876,15 @@ renderInGame = \model, netplay, _frameCount ->
             (model.moves.1, model.hovering.confederate)
     # Drawing.drawGrid! model.map.obstacles Assets.hex boardRect
 
-    drawObs = List.walk  model.map.obstacles (Task.ok {}) \task, obs  ->
+    drawObs = List.walk model.map.obstacles (Task.ok {}) \task, obs ->
         task!
         { x, y } = Hex.hexToPixel obs
-        W4.setShapeColors! {border: Color2, fill: None }
+        W4.setShapeColors! { border: Color2, fill: None }
         Drawing.blitHexagon! obs boardRect Assets.filledHex
         W4.setTextColors { fg: Color1, bg: None }
-        |> Task.await \_ -> W4.text "@" {x: x + boardRect.x + 4, y: boardRect.y + y + 2}
-        # |> Task.await \_ -> W4.text "@" position
-
+        |> Task.await \_ -> W4.text "@" { x: x + boardRect.x + 4, y: boardRect.y + y + 2 }
+    # |> Task.await \_ -> W4.text "@" position
     Drawing.drawBoardRect! boardRect
-
     W4.setTextColors! { fg: Color1, bg: Color4 }
     drawObs!
 
@@ -892,13 +901,13 @@ renderInGame = \model, netplay, _frameCount ->
         |> \units -> Drawing.drawUnits units boardRect theMove theArmy
         |> Task.await
 
-
     unitSummary =
         when theMove is
             Selected id _ | Destination id _ ->
-                myPath = when theMove is
-                    Selected _ path -> path
-                    _ -> []
+                myPath =
+                    when theMove is
+                        Selected _ path -> path
+                        _ -> []
                 getUnitById id
                 |> Result.map \unit -> getSummary unit myPath
                 |> Result.withDefault "He dead ..."
@@ -953,7 +962,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                         selected
                         |> Result.map \newUnit -> Selected newUnit.id []
                     else
-                        Ok (Destination u.id  hovering)
+                        Ok (Destination u.id hovering)
 
             Selected id prevPath ->
                 destUpdated =
@@ -976,8 +985,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                             withoutMe = \cell -> if u.cell == cell then Bool.false else isOccupied cell
                             List.get u.lastPath 1
                             |> Result.try \nextPath -> Hex.findGraph nextPath hovering withoutMe
-                            |> Result.onErr \_ -> Hex.findGraph u.cell hovering isOccupied
-                            # Hex.findGraph u.cell hovering isOccupied
+                            |> Result.onErr \_ -> Hex.findGraph u.cell hovering isOccupied # Hex.findGraph u.cell hovering isOccupied
                             |> Result.withDefault prevPath
                     |> Result.map \newPath -> Selected id newPath
                     |> Result.onErr \_ -> Ok Finished
@@ -997,10 +1005,11 @@ getSummary = \unit, planned ->
         |> Result.map \n -> "$(Num.toStr n.column),$(Num.toStr n.row)"
         |> Result.withDefault "none"
 
-    readyState = when unit.readiness is
-        Cooldown ticked -> "C<$(ticked |> frameCountToSeconds |> Num.mul 10 |> Num.round |> Num.toFrac |> Num.div 10 |> Num.toStr)>"
-        Moving -> "M"
-        Ready -> "R"
+    readyState =
+        when unit.readiness is
+            Cooldown ticked -> "C<$(ticked |> frameCountToSeconds |> Num.mul 10 |> Num.round |> Num.toFrac |> Num.div 10 |> Num.toStr)>"
+            Moving -> "M"
+            Ready -> "R"
 
     health =
         when unit.health is
@@ -1016,23 +1025,57 @@ getSummary = \unit, planned ->
 
 runCombat = \units ->
     indexer = makeUnitIdIndexer units
+    ## First get all of the eligible attackers
+    ## and their single target
     List.keepOks units \u ->
-        if isAlive u.health then
+        canFire =
+            when u.readiness is
+                Ready -> Bool.true
+                _ -> Bool.false
+        if isAlive u.health && canFire then
             getTargeting units u
-            |> Result.map \target -> (target, 10) ## <-- u.damage
+            |> Result.map \target -> (u, target, u.attackDamage) ## <-- u.damage
         else
             Err NoEnemy
-    |> List.walk units \accum, (target, damage) ->
+    ## Now walk over the list of (attacker, defender, damage) triples
+    ## and accumulate an updated list of units
+    |> List.walk units \accum, (source, target, damage) ->
+        ## Update `readinesss` of attacking unit
+        updatedAccum =
+            List.findFirstIndex accum \u -> u.id == source.id
+            |> Result.map \attackerIdx ->
+                List.update accum attackerIdx \u ->
+                    { u & readiness: Cooldown (Num.round u.cooldownRate) }
+            |> Result.withDefault accum
+        ## Update `health` of defender
         indexer target.id
         |> Result.map \victimIndex ->
-            List.update accum victimIndex \u -> { u & health: takeHit u.health damage }
-        |> Result.withDefault accum
+            List.update updatedAccum victimIndex \u ->
+                #           ^^--- update the new version
+                { u & health: takeHit u.health damage }
+        |> Result.withDefault updatedAccum
 
 ## runCombat should get targets, update health
 expect
     testUnits = [
-        { id: 0, army: Union, cell: doubled 2 4, health: Living (Health.make 200) },
-        { id: 1, army: Confederates, cell: doubled 3 3, health: Living (Health.make 100) },
+        {
+            id: 0,
+            cooldownRate: 100.0,
+            readiness: Ready,
+            army: Union,
+            cell: doubled 2 4,
+            health: Living (Health.make 200),
+            attackDamage: 5u32,
+        },
+        {
+            id: 1,
+            cooldownRate: 50.0,
+            readiness: Cooldown 25u32,
+            army: Confederates,
+            cell: doubled 3 3,
+            health: Living (Health.make 100),
+            attackDamage: 10u32,
+        },
     ]
     actual =
         runCombat testUnits
@@ -1046,8 +1089,24 @@ expect
 ## runCombat should not over/underflow
 expect
     testUnits = [
-        { id: 0, army: Union, cell: doubled 2 4, health: Living (Health.make 9) },
-        { id: 1, army: Confederates, cell: doubled 3 3, health: Living (Health.make 100) },
+        {
+            id: 0,
+            cooldownRate: 100.0,
+            readiness: Ready,
+            army: Union,
+            cell: doubled 2 4,
+            health: Living (Health.make 9),
+            attackDamage: 10u32,
+        },
+        {
+            id: 1,
+            cooldownRate: 100.0,
+            readiness: Ready,
+            army: Confederates,
+            cell: doubled 3 3,
+            health: Living (Health.make 100),
+            attackDamage: 10u32,
+        },
     ]
     actual = runCombat testUnits |> List.map \{ health } -> isAlive health
     expected = [Bool.false, Bool.true]
