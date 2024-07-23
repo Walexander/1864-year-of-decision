@@ -13,7 +13,7 @@ import Health
 UnitId : I8
 MoveChoice : [
     Selected UnitId (List Doubled),
-    Destination (UnitId, Doubled),
+    Destination UnitId Doubled,
     Finished,
 ]
 
@@ -152,8 +152,8 @@ getFirstMove = \forArmy, units ->
 
 newGame : U64, Army, Army -> GameState
 newGame = \startFrame, player1Army, player2Army ->
-    launchIn = 60 * 40
-    units = List.dropLast initialUnits 4 # [] #initialUnits
+    launchIn = 60 * 4
+    units = List.dropLast initialUnits 2 # [] #initialUnits
     unionMove = getFirstMove Union initialUnits
     confederateMove = getFirstMove Confederates initialUnits
 
@@ -165,30 +165,32 @@ newGame = \startFrame, player1Army, player2Army ->
         armies: (player1Army, player2Army),
         map: {
             obstacles: [
+                doubled 2 4,
+                doubled 4 6,
+                doubled 8 6,
                 doubled 6 4,
                 doubled 5 5,
                 doubled 7 5,
                 doubled 6 6,
+                doubled 6 8,
                 doubled 5 7,
                 doubled 7 7,
             ],
             launchPads: [
                 [
-                    doubled 4 8,
-                    doubled 5 9,
-                    doubled 4 10,
+                    doubled 3 9,
+                    doubled 2 10,
+                    doubled 3 11,
                 ],
                 [
-                    doubled 5 1,
                     doubled 5 3,
                     doubled 6 2,
-                    doubled 7 1,
                     doubled 7 3,
                 ],
                 [
-                    doubled 7 9,
-                    doubled 8 10,
-                    doubled 8 8,
+                    doubled 9 9,
+                    doubled 10 10,
+                    doubled 9 11,
                 ],
             ],
         },
@@ -223,6 +225,7 @@ init =
 Unit : {
     id : I8,
     moveRate : F32,
+    cooldownRate: F32,
     army : [Union, Confederates],
     health : [Living Health.Health, Dead U32],
     position : Hex.Point,
@@ -230,6 +233,7 @@ Unit : {
     dest : Doubled,
     sprite : Sprite,
     lastPath : List Doubled,
+    readiness: [Cooldown U32, Ready, Moving],
     range : U8,
 }
 
@@ -243,11 +247,13 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 id,
                 army,
                 position,
+                readiness: Ready,
                 health: Living (Health.make 125),
                 cell,
                 dest: cell,
                 lastPath,
                 moveRate: 120,
+                cooldownRate: 150,
                 range: 2,
                 sprite: Assets.cannon,
             }
@@ -258,10 +264,12 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 army,
                 position,
                 health: Living (Health.make 100),
+                readiness: Ready,
                 cell,
                 dest: cell,
                 lastPath,
                 moveRate: 90,
+                cooldownRate: 50,
                 range: 8,
                 sprite: Assets.infantry,
             }
@@ -271,11 +279,13 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 id,
                 army,
                 position,
+                readiness: Ready,
                 health: Living (Health.make 80),
                 cell,
                 dest: cell,
                 lastPath,
                 moveRate: 60,
+                cooldownRate: 30,
                 range: 1,
                 sprite: Assets.horsey,
             }
@@ -363,39 +373,6 @@ expect
     actual == expected
 
 
-unitPathFromMove = \unit, move, isblocked ->
-    when move is
-        Destination (id, chosen) if id == unit.id ->
-            if isblocked chosen then
-                (unit.cell, unit.lastPath)
-            else
-                path = Hex.findGraph unit.cell chosen isblocked
-                    |> Result.map \p -> reroutePath p unit.lastPath unit.cell
-                    |> Result.withDefault []
-                (chosen, path)
-# List.get path 1
-# |> Result.map \desired ->
-#     if desired == previous then path else List.prepend path unit.cell
-# |> Result.map \realPath -> (chosen, realPath)
-# |> Result.withDefault (chosen, path)
-# (chosen, (path))
-        _ -> (unit.dest, unit.lastPath)
-# paths = unit.lastPath |> List.dropFirst 1
-# if List.any paths isblocked then
-#     Hex.findGraph unit.cell unit.dest isblocked
-#     |> Result.map \theWay -> (unit.dest, theWay)
-#     |> Result.withDefault (unit.dest, unit.lastPath)
-# else
-#     (unit.dest, unit.lastPath)
-
-# realPath =
-#     List.get unit.lastPath 2
-#     |> Result.try \going ->
-#         List.get unit.lastPath 2
-#         |> Result.map \leaving ->
-#             if leaving == going then path else List.prepend path leaving
-#     |> Result.withDefault path
-
 updateUnit : Unit, U64, MoveChoice, (Doubled -> Bool) -> Unit
 updateUnit = \original, frameCount, move, cannotMoveTo ->
     { cell, dest, moveRate } = original
@@ -413,13 +390,21 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
                     ProceedTo from nextCell newDest newPath
 
             [nextCell] -> DoneMoving nextCell
-            [] -> DoneMoving cell
+            [] -> Stopped
 
     when marchingOrder is
+        Stopped ->
+            readiness = when original.readiness is
+                Cooldown countdown if countdown > 0 -> Cooldown (countdown - 1)
+                Cooldown _ -> Ready
+                otherwise -> otherwise
+            { original & readiness }
+
         DoneMoving finalDestination ->
             { original &
                 lastPath: List.dropFirst original.lastPath 1,
                 position: Hex.hexToPixel finalDestination,
+                readiness: Cooldown  (original.cooldownRate |> Num.round),
                 dest: finalDestination,
                 cell: finalDestination,
             }
@@ -428,16 +413,13 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
             { original &
                 cell: nextCell,
                 position: Hex.hexToPixel nextCell,
+                readiness: Moving,
                 dest: destination,
             }
 
         ProceedTo fromCell nextCell destination path ->
-            { original &
-                dest: destination,
-                lastPath: if moveCountDown == 0 then List.dropFirst path 1 else path,
-                cell: fromCell,
-                # cell: if movecountdown == 0 then nextcell else fromcell,
-                position: if moveCountDown == 0 then
+            position =
+                if moveCountDown == 0 then
                     Hex.hexToPixel nextCell
                 else
                     Hex.pointLerp
@@ -447,7 +429,13 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
                             moveCountDown
                             |> Num.toFrac
                             |> Num.div moveRate
-                        ),
+                        )
+            { original &
+                dest: destination,
+                readiness: Moving,
+                lastPath: if moveCountDown == 0 then List.dropFirst path 1 else path,
+                cell: fromCell,
+                position: position,
             }
 
         UpdatePathTo destination _ ->
@@ -455,6 +443,18 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
                 dest: destination,
                 lastPath: Hex.findGraph cell dest cannotMoveTo |> Result.withDefault [],
             }
+
+unitPathFromMove = \unit, move, isblocked ->
+    when move is
+        Destination id chosen if id == unit.id ->
+            if isblocked chosen then
+                (unit.cell, unit.lastPath)
+            else
+                path = Hex.findGraph unit.cell chosen isblocked
+                    |> Result.map \p -> reroutePath p unit.lastPath unit.cell
+                    |> Result.withDefault []
+                (chosen, path)
+        _ -> (unit.dest, unit.lastPath)
 
 isCellOccupied : List Unit, List Doubled -> (Doubled -> Bool)
 isCellOccupied = \units, obstacles -> \cell ->
@@ -477,7 +477,6 @@ isCellOccupied = \units, obstacles -> \cell ->
 update : Model -> Task Model []
 update = \model ->
     inputs = getPlayerInputs!
-    Drawing.drawTitle! boardRect
     netplay = W4.getNetplay!
 
     screenState =
@@ -499,7 +498,10 @@ update = \model ->
             inputs,
             lastInputs: model.inputs,
         } # |> updateBackground
-    Task.map screenState \ss -> { updated & screenState: ss }
+    Task.await screenState \ss ->
+        Drawing.drawTitle boardRect
+        |> Task.map \_ -> { updated & screenState: ss }
+
 
 updateFrameCount = \prev ->
     frameCount = Num.addWrap prev.frameCount 1
@@ -640,7 +642,8 @@ renderTitleScreen = \state, frameCount ->
     W4.setTextColors! { fg: Color4, bg: None }
     help |> W4.text! { x: 15, y: halfY + 25 }
     W4.setTextColors! { fg: Color3, bg: None }
-    disclaimer |> W4.text! { x: 15, y: halfY + 65 }
+    disclaimer |> W4.text { x: 15, y: halfY + 65 }
+
 
 renderGameOver = \state, frameCount ->
     restartIn = 5
@@ -661,14 +664,13 @@ renderGameOver = \state, frameCount ->
     W4.rect! { width: 140, height: 80, x: 10, y: 30 }
     W4.setShapeColors! { border: color, fill: color }
     W4.rect! { width: 138, height: 25, x: 11, y: 31 }
-    W4.setTextColors! { fg: Color1, bg: None }
+    W4.setTextColors! { fg: Color4, bg: None }
     outcome =
         if theArmy == winner then
             "WIN"
         else
             "LOSE"
     "You $(outcome)!!" |> W4.text! { x: 17, y: 35 }
-    W4.setTextColors! { fg: Color4, bg: None }
     message =
         """
         After $(Num.toStr elapsed)
@@ -687,7 +689,7 @@ renderGameOver = \state, frameCount ->
         |> Num.mul 8
         |> Num.round
     W4.setTextColors! { fg: Color1, bg: Color2 }
-    restartMessage |> W4.text { x: Num.abs (80 - size), y: 100 }
+    restartMessage |> W4.text! { x: Num.abs (80 - size), y: 100 }
 
 getUnitFromClickedCell = \units, selected, army ->
     List.findFirst units \u -> u.cell == selected && u.army == army && isAlive u.health
@@ -750,10 +752,6 @@ getHoverCell = \hoverCell, gamePad, lastGamepad ->
         else
             { row, column }
 
-# printPixel = \{x, y}, frameCount, msg ->
-#     pixel = W4.getPixel! { x, y }
-#     if frameCount % 300 == 0 then W4.debug msg pixel else Task.ok {}
-
 makeUnitIdLocator = \units -> \queryId -> List.findFirst units \{ id } -> id == queryId
 makeUnitIdIndexer = \units -> \queryId -> List.findFirstIndex units \{ id } -> id == queryId
 
@@ -811,15 +809,16 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
         }
 
     units = List.walk model.units [] \accum, u ->
-        # barriers = isCellOccupied accum model.map.obstacles
         unitUpdate =
             when u.army is
                 Union -> updateUnit u frameCount unionMove isOccupied
                 Confederates -> updateUnit u frameCount confedMove isOccupied
-        List.append accum unitUpdate
+
+        List.append accum
+            { unitUpdate & position: unitUpdate.position }
 
     combatUnits =
-        if frameCount % 60 == 0 then
+        if frameCount % 6 == 0 then
             runCombat units |> List.keepIf \{ health } -> isAlive health
         else
             units
@@ -864,21 +863,25 @@ renderInGame = \model, netplay, _frameCount ->
             (model.moves.0, model.hovering.union)
         else
             (model.moves.1, model.hovering.confederate)
-    Drawing.drawGrid! model.map.obstacles Assets.hex boardRect
-    # drawObs = List.walk (Task.ok {}) model.map.obstacles \obs,  ->
-    #     when obs is
-    #         [] -> Task.ok (Done {})
-    #         [obstacle, .. as rest] ->
-    #             Hex.drawHex obstacle boardRect Assets.filledHex
-    #             |> Task.map \_ -> Step rest
+    # Drawing.drawGrid! model.map.obstacles Assets.hex boardRect
 
+    drawObs = List.walk  model.map.obstacles (Task.ok {}) \task, obs  ->
+        task!
+        { x, y } = Hex.hexToPixel obs
+        W4.setShapeColors! {border: Color2, fill: None }
+        Drawing.blitHexagon! obs boardRect Assets.filledHex
+        W4.setTextColors { fg: Color1, bg: None }
+        |> Task.await \_ -> W4.text "@" {x: x + boardRect.x + 4, y: boardRect.y + y + 2}
+        # |> Task.await \_ -> W4.text "@" position
 
     Drawing.drawBoardRect! boardRect
+
+    W4.setTextColors! { fg: Color1, bg: Color4 }
+    drawObs!
 
     getOwner = \pad -> getPadOwner model.units pad
     Drawing.drawPads! model.map.launchPads getOwner
     Drawing.drawLaunchTimer! msRemaining totalMs
-    # drawUnionMove =
     W4.setPrimaryColor! Color2
     Drawing.drawPlayerMove! theMove theHoverCell getUnitById Color2 isOccupied
     W4.setPrimaryColor! Color3
@@ -889,11 +892,15 @@ renderInGame = \model, netplay, _frameCount ->
         |> \units -> Drawing.drawUnits units boardRect theMove theArmy
         |> Task.await
 
+
     unitSummary =
         when theMove is
-            Selected id path ->
+            Selected id _ | Destination id _ ->
+                myPath = when theMove is
+                    Selected _ path -> path
+                    _ -> []
                 getUnitById id
-                |> Result.map \unit -> getSummary unit path
+                |> Result.map \unit -> getSummary unit myPath
                 |> Result.withDefault "He dead ..."
 
             _ -> ""
@@ -913,8 +920,10 @@ renderInGame = \model, netplay, _frameCount ->
         y: infoY + 2,
     }
     W4.setTextColors! { bg: Color4, fg: None }
-    W4.text! " $(Num.toStr theHoverCell.column),$(Num.toStr theHoverCell.row) " {
-        x: boardRect.x + (Num.toI32 boardRect.width) - 37,
+    currCellText = " $(Num.toStr theHoverCell.column),$(Num.toStr theHoverCell.row) "
+    width = Str.countUtf8Bytes currCellText
+    W4.text! currCellText {
+        x: boardRect.x + (Num.toI32 boardRect.width) - (Num.toI32 (width * 7)),
         y: (boardRect.y + (Num.toI32 boardRect.height) + 2) |> Num.abs,
     }
     Drawing.resetColors
@@ -924,7 +933,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
     selected = getUnitFromClickedCell units hovering theArmy
     resultChoice =
         when currentChoice is
-            Destination (unitId, _) ->
+            Destination unitId _ ->
                 Ok
                     (
                         Selected unitId []
@@ -944,7 +953,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                         selected
                         |> Result.map \newUnit -> Selected newUnit.id []
                     else
-                        Ok (Destination (u.id, hovering))
+                        Ok (Destination u.id  hovering)
 
             Selected id prevPath ->
                 destUpdated =
@@ -964,7 +973,11 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                         if isOccupied hovering then
                             prevPath
                         else
-                            Hex.findGraph u.cell hovering isOccupied
+                            withoutMe = \cell -> if u.cell == cell then Bool.false else isOccupied cell
+                            List.get u.lastPath 1
+                            |> Result.try \nextPath -> Hex.findGraph nextPath hovering withoutMe
+                            |> Result.onErr \_ -> Hex.findGraph u.cell hovering isOccupied
+                            # Hex.findGraph u.cell hovering isOccupied
                             |> Result.withDefault prevPath
                     |> Result.map \newPath -> Selected id newPath
                     |> Result.onErr \_ -> Ok Finished
@@ -983,15 +996,22 @@ getSummary = \unit, planned ->
         List.get unit.lastPath 1
         |> Result.map \n -> "$(Num.toStr n.column),$(Num.toStr n.row)"
         |> Result.withDefault "none"
+
+    readyState = when unit.readiness is
+        Cooldown ticked -> "C<$(ticked |> frameCountToSeconds |> Num.mul 10 |> Num.round |> Num.toFrac |> Num.div 10 |> Num.toStr)>"
+        Moving -> "M"
+        Ready -> "R"
+
     health =
         when unit.health is
             Living hp -> Health.health hp |> Num.mul 100 |> Num.round |> Num.toFrac |> Num.div 100 |> Num.toStr
             Dead time -> "Dead since $(time |> Num.toStr)"
     """
-    #$(Num.toStr id)/health:$(health)
+    #$(Num.toStr id)/H:$(health)
     $(Num.toStr unit.cell.column),$(Num.toStr unit.cell.row)->$(next) $(Num.toStr unit.position.x),$(Num.toStr unit.position.y)
     dest:$(Num.toStr unit.dest.column),$(Num.toStr unit.dest.row) [$(Hex.hexDistance unit.cell unit.dest |> Num.toStr)]/$(List.len unit.lastPath |> Num.toStr)
-    dest:$(List.len unit.lastPath |> Num.toStr)  plan:$(List.len planned |> Num.toStr)
+    [$(List.len unit.lastPath |> Num.toStr):$(List.len planned |> Num.toStr)] {$(readyState)}
+
     """
 
 runCombat = \units ->

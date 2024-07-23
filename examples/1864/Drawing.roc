@@ -1,4 +1,4 @@
-module [drawPads, resetColors, drawBottomImage, drawTitle, drawUnits, drawBoardRect, drawPlayerMove, drawHoverPositon, drawGrid, drawLaunchPad, drawLaunchTimer, drawGameTime]
+module [drawPads, resetColors, drawBottomImage, drawTitle, drawUnits, drawBoardRect, drawPlayerMove, drawHoverPositon, drawGrid, drawLaunchPad, drawLaunchTimer, drawGameTime, blitHexagon]
 import w4.W4
 import w4.Sprite
 import w4.Task exposing [Task]
@@ -16,10 +16,6 @@ boardRect = {
     height: Num.toU32 100,
 }
 
-drawPads = \launchPads, getOwner ->
-    List.walk launchPads (Task.ok {}) \task, launchPad ->
-        task!
-        drawLaunchPad launchPad (getOwner launchPad) Assets.hex
 drawGameTime = \elapsedSeconds ->
     W4.setShapeColors! { fill: Color2, border: Color4 }
     offsetX : I32
@@ -39,16 +35,55 @@ drawGameTime = \elapsedSeconds ->
             y: (boardRect.y + 2),
         }
 
+gameBorder = [
+    Hex.doubled -1 -1,
+    Hex.doubled 1 -1,
+    Hex.doubled 3 -1,
+    Hex.doubled 5 -1,
+    Hex.doubled 7 -1,
+    Hex.doubled 9 -1,
+    Hex.doubled 11 -1,
+    Hex.doubled 13 -1,
+    Hex.doubled -1 1,
+    Hex.doubled -1 3,
+    Hex.doubled -1 5,
+    Hex.doubled -1 7,
+    Hex.doubled -1 9,
+    Hex.doubled -1 11,
+    Hex.doubled -1 13,
+    Hex.doubled -1 15,
+    Hex.doubled 0 16,
+    Hex.doubled 2 16,
+    Hex.doubled 4 16,
+    Hex.doubled 6 16,
+    Hex.doubled 8 16,
+    Hex.doubled 10 16,
+    Hex.doubled 12 16,
+    Hex.doubled 13 1,
+    Hex.doubled 13 3,
+    Hex.doubled 13 5,
+    Hex.doubled 13 7,
+    Hex.doubled 13 9,
+    Hex.doubled 13 11,
+    Hex.doubled 13 13,
+    Hex.doubled 13 15,
+]
+drawBorder = List.walk gameBorder (Task.ok {}) \task, cell ->
+    task!
+    Drawing.blitHexagon cell boardRect Assets.filledHex
+
 drawBoardRect = \rect ->
     W4.setShapeColors! { fill: Color3, border: Color3 }
     W4.rect! {
         x: 0,
         y: boardRect.y - 5,
         width: 160,
-        height: boardRect.height + 10,
+        height: boardRect.height + 5,
     }
     W4.setShapeColors! { fill: Color1, border: Color1 }
-    W4.rect rect
+    W4.rect! rect
+# W4.setShapeColors! { fill: None, border: Color3 }
+# drawBorder
 
 armyColor = \army ->
     when army is
@@ -66,48 +101,71 @@ drawLaunchPad = \pad, owner, sprite ->
 drawGrid = \cubes, sprite, point ->
     List.walk cubes (Task.ok {}) \task, cell ->
         task!
-        Hex.drawHex cell point sprite
-
-drawPath = \path ->
-    List.walkWithIndex path (Task.ok {}) \task, from, i ->
+        blitHexagon cell point sprite
+# Task.loop cubes \cs ->
+#     when cs is
+#         [] -> Task.ok (Done {})
+#         [next, .. as rest] ->
+#             blitHexagon next point sprite
+#             |> Task.map \_ -> Step rest
+hexFudgePoint = { x: Hex.halfWidth + 1, y: Hex.halfHeight + 2 }
+drawPath = \segments ->
+    # Task.loop segments \segment ->
+    #     when segment is
+    #         Segment (from, to) -> W4.line from to
+    #         End -> Task.ok {}
+    List.walk segments (Task.ok {}) \task, segment ->
         task!
-        List.get path (i + 1)
-        |> Result.map \to -> W4.line from to
-        |> Result.withDefault (Task.ok {})
+        when segment is
+            Segment from to ->
+                W4.line
+                    (Hex.addPoint boardRect from |> Hex.addPoint hexFudgePoint)
+                    (Hex.addPoint boardRect to |> Hex.addPoint hexFudgePoint)
+
+            End -> Task.ok {}
+# List.walkWithIndex path (Task.ok {}) \task, from, i ->
+#     task!
+#     List.get path (i + 1)
+#     |> Result.map \to -> W4.line from to
+#     |> Result.withDefault (Task.ok {})
 
 drawPaths = \plannedPath, destPath, starting ->
-    position = {
-        x: starting.x + boardRect.x,
-        y: starting.y + boardRect.y
-    }
+    # position = Hex.addPoint boardRect starting
+    # |> List.set 0 starting
+    # |> Hex.pathToLine
+    # |> List.set 0 position
+    destLine = List.map destPath \cell -> Hex.hexToPixel cell
+    # |> List.set 0 position
 
     plannedLine =
-        Hex.pathToLine plannedPath boardRect
-        |> List.set 0 position
-    destLine = Hex.pathToLine destPath boardRect
-        |> List.set 0 position
-
-    drawPath! destLine
+        plannedPath
+        |> List.map \cell -> Hex.hexToPixel cell
+    W4.setPrimaryColor! Color2
+    drawPath! (plannedLine |> Hex.pathToLine)
 
     _ <-
         List.last destPath
         |> Result.map \cell -> drawHoverPositon cell
         |> Result.withDefault (Task.ok {})
         |> Task.await
+
     W4.setPrimaryColor! Color4
-    drawPath plannedLine
+    drawPath (destLine |> List.set 0 starting |> Hex.pathToLine)
 
 drawHoverPositon = \cell ->
-    point = Hex.hexToPixel cell
+    { x, y } =
+        Hex.addPoint boardRect (Hex.hexToPixel cell)
+        |> Hex.addPoint { x: Hex.halfWidth + 1, y: Hex.halfHeight + 2 }
     # xoffset = Hex.halfWidth |> Num.toFrac |> Num.div 2 |> Num.round
     # yoffset = Hex.halfHeight |> Num.toFrac |> Num.div 2 |> Num.round
-
     # # width = xoffset * 2 |> Num.toU32
     # height = yoffset * 2 |> Num.toU32
-    x = point.x |> Num.add boardRect.x
-    y = point.y |> Num.add boardRect.y
+    # x = point.x |> Num.add boardRect.x
+    # y = point.y |> Num.add boardRect.y
     W4.line! { x: x - 2, y: y } { x: x + 2, y }
-    W4.line { x: x, y: y - 2 } { x, y: y  + 2 }
+    W4.line! { x: x, y: y - 2 } { x, y: y + 2 }
+    W4.setShapeColors! { fill: None, border: Color4 }
+    blitHexagon cell boardRect Assets.hex
 
 drawPlayerMove = \move, _hovering, get, color, _isBlocked ->
     W4.setPrimaryColor! color
@@ -116,36 +174,62 @@ drawPlayerMove = \move, _hovering, get, color, _isBlocked ->
             unit = get id
             (starting, destination) =
                 unit
-                |> Result.map \{lastPath, position} -> (position, lastPath)
-                |> Result.withDefault ({ x: 0, y: 0}, [])
+                |> Result.map \{ lastPath, position } -> (position, lastPath)
+                |> Result.withDefault ({ x: 0, y: 0 }, [])
             drawPaths planned destination starting
 
-        Finished | Destination (_, _) -> Task.ok {}
+        Finished | Destination _ _ -> Task.ok {}
 
 drawUnit = \unit, bp, choice, theArmy ->
-    point = {
-        x: (unit.position.x + bp.x - 4) |> Num.toI32,
-        y: (unit.position.y + bp.y - 4) |> Num.toI32,
-    }
+    point =
+        Hex.addPoint bp unit.position
+        |> Hex.addPoint { x: 4, y: 2 }
+
     drawTo = {
         x: point.x,
         y: point.y,
-        flags: if unit.army != theArmy then
-            [FlipX]
+        flags: if unit.army == Union then
+            []
         else
-            [],
+            [FlipX],
     }
     border = armyColor unit.army
-    fill =
-        if unit.army == theArmy then
-            Color4
-        else
-            when choice is
-                Selected id _ -> if unit.id == id then Color2 else None
-                _ -> None
+    isSelected =
+        when choice is
+            Selected id _ -> unit.id == id
+            _ -> Bool.false
+    fill = if unit.army == theArmy && isSelected then Color4 else None
+    # W4.setShapeColors! { border: Color3, fill: None }
+    # unitCell = unit.cell #Hex.pixToHex unit.position
+    # blitHexagon! unitCell { x: boardRect.x, y: boardRect.y + 1 } Assets.hex
+    # W4.setShapeColors! { border: Color4, fill: None }
+    # currentCell = Hex.pixToHex unit.position
+    # blitHexagon! currentCell { x: boardRect.x, y: boardRect.y + 1 } Assets.hex
 
-    W4.setShapeColors! { border: fill, fill: None }
-    blitHexagon! unit.cell { x: boardRect.x, y: boardRect.y + 1 } Assets.hex
+    (readyColors, width) =
+        when unit.readiness is
+            Cooldown timer ->
+                t =
+                    unit.cooldownRate
+                    |> Num.sub (Num.toF32 timer)
+                    |> Num.div unit.moveRate
+                w = Hex.lerp 0 Hex.hexWidth t |> Num.round
+                (
+                    { fill: Color2, border: Color4 },
+                    w,
+                )
+
+            Ready -> ({ fill: Color2, border: Color4 }, Hex.hexWidth)
+            Moving -> ({ fill: None, border: None }, Hex.hexWidth)
+    W4.setShapeColors! readyColors
+    outlinePoint = Hex.addPoint point { x: -2, y: -4 }
+    W4.rect! {
+        x: outlinePoint.x,
+        y: outlinePoint.y,
+        width: width |> Num.toU32,
+        height: 3,
+    }
+
     W4.setShapeColors { border, fill }
     |> Task.await \_ -> Sprite.blit unit.sprite drawTo
     |> Task.await \_ ->
@@ -159,10 +243,13 @@ drawUnit = \unit, bp, choice, theArmy ->
             Dead _ -> Task.ok {}
 
 drawUnits = \units, bp, choice, theArmy ->
-    List.walk units (Task.ok {}) \task, unit ->
-        task!
+    Task.loop units \unitsLeft ->
+        when unitsLeft is
+            [unit, .. as rest] ->
+                drawUnit unit bp choice theArmy
+                |> Task.map \_ -> Step rest
 
-        drawUnit unit bp choice theArmy
+            [] -> Task.ok (Done [])
 
 drawHealthBar : Health.Health, Hex.Point -> _
 drawHealthBar = \health, point ->
@@ -187,11 +274,12 @@ drawHealthBar = \health, point ->
     W4.setShapeColors! { fill: Color2, border: None }
     W4.rect healthRect
 
-
 blitHexagon = \cell, point, sprite ->
-    x = point.x |> Num.add (cell.column |> Num.mul Hex.hexWidth) |> Num.sub Hex.halfWidth |> Num.toI32
-    y = point.y |> Num.add (cell.row |> Num.mul Hex.hexHeight) |> Num.sub Hex.halfHeight |> Num.toI32
-    Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
+    # x = point.x |> Num.add (cell.column |> Num.mul Hex.hexWidth) |> Num.sub Hex.halfWidth |> Num.toI32
+    # y = point.y |> Num.add (cell.row |> Num.mul Hex.hexHeight) |> Num.sub Hex.halfHeight |> Num.toI32
+    { x, y } = Hex.hexToPixel cell
+    pt = { x: x + point.x, y: y + point.y }
+    Sprite.blit! sprite pt
 
 resetColors =
     W4.setDrawColors {
@@ -200,6 +288,17 @@ resetColors =
         tertiary: Color3,
         quaternary: Color4,
     }
+
+drawPads = \launchPads, getOwner ->
+    # Task.loop launchPads \pads ->
+    #     when pads is
+    #         [nextPad, .. as rest] ->
+    #             drawLaunchPad nextPad (getOwner nextPad) Assets.hex
+    #             |> Task.map \_ -> Step rest
+    #         [] -> Task.ok (Done [])
+    List.walk launchPads (Task.ok {}) \task, launchPad ->
+        task!
+        drawLaunchPad launchPad (getOwner launchPad) Assets.hex
 
 drawBottomImage = \sprite ->
     # W4.setShapeColors! { border: Color4, fill: Color1 }
@@ -212,7 +311,6 @@ drawBottomImage = \sprite ->
     sub = Sprite.subOrCrash sprite { srcX: 0, srcY: 0, height: 40, width: 156 }
     resetColors!
     Sprite.blit! sub { x: 2, y: 160 - 45 }
-
 
 drawTitle = \point ->
     W4.setShapeColors! { border: Color2, fill: Color4 }
@@ -239,8 +337,7 @@ drawLaunchTimer = \remaining, total ->
         |> Num.toFrac
         |> Num.div 2
         |> Num.round
-        |> Num.sub (Num.round (Num.toFrac launchWindowHeight / 2))
-        |> Num.sub (Num.round (Num.toFrac Hex.hexHeight / 2))
+        |> Num.sub (Num.round (Num.toFrac launchWindowHeight / 2)) # |> Num.sub (Num.round (Num.toFrac Hex.hexHeight / 2))
         |> Num.add 1
         |> Num.toI32
 

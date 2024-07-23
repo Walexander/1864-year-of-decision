@@ -1,7 +1,8 @@
-module [Doubled, Point, clamp, findGraph2, findGraph, hexDistance, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, drawHex, findPath, pointLerp]
+module [Doubled, Point, addPoint, pixelToHex, pixToHex, clamp, findGraph2, findGraph, hexDistance, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, findPath, pointLerp]
 import Graph
-import w4.W4
 import w4.Sprite
+import Assets
+import w4.W4
 import w4.Task exposing [Task]
 
 Point : { x : I32, y : I32 }
@@ -10,7 +11,7 @@ Doubled : {
     column : I32,
 }
 hexWidth : I32
-hexWidth = 12
+hexWidth = 11
 hexHeight : I32
 hexHeight = 6
 halfWidth : I32
@@ -22,11 +23,67 @@ doubled : I32, I32 -> Doubled
 doubled = \column, row ->
     { column, row }
 
+addPoint = \a, b -> {
+    x: a.x + b.x,
+    y: a.y + b.y,
+}
 hexToPixel : Doubled -> Point
 hexToPixel = \{ row, column } -> {
-    x: column |> Num.mul hexWidth |> Num.add 2,
-    y: row |> Num.mul hexHeight |> Num.add 3,
+    x: column |> Num.mul hexWidth, #|> Num.add 2,
+    y: row |> Num.mul hexHeight, #|> Num.add 3,
 }
+# x = col * h + 2+
+# col = (x - 2) / h+
+# row = y - 3 / w+
+pixToHex = \{ x, y } ->
+    column =
+        Num.toFrac (x + 2)
+        |> Num.div (Num.toFrac hexWidth)
+    cRound = column |> Num.round |> Num.toI32
+    row =
+        (y + 1)
+        |> Num.toFrac
+        |> Num.div (Num.toFrac hexHeight)
+    rowRound = row |> Num.round |> Num.toI32
+
+    if (rowRound + cRound) % 2 == 0 then
+        dbg (rowRound, cRound)
+
+        doubled cRound rowRound
+    else
+        rDiff = (Num.toFrac rowRound) - row
+        cDiff = (Num.toFrac cRound) - column
+        if (Num.abs rDiff) > (Num.abs cDiff) then
+            dbg rowRound
+
+            dbg cRound
+
+            dbg (rowRound + cRound)
+
+            myRow = if rDiff > 0 then rowRound - 1 else rowRound + 1
+            doubled cRound myRow
+        else
+            myCol = if cDiff > 0 then cRound - 1 else cRound + 1
+            doubled myCol rowRound
+# expect
+#     actual = pixToHex { x: 2, y: 3 }
+#     expected = doubled 0 0
+#     actual == expected &&
+#     (pixToHex { x: 2, y: 4 }) == expected &&
+#     (pixToHex { x: 2, y: 5 }) == expected
+
+expect
+    actual = pixToHex { x: 2, y: 10 }
+    expected = doubled 0 2
+    actual == expected
+# expect
+#     actual = pixToHex { x: 2, y: 8 }
+#     expected = doubled 0 2
+#     actual == expected
+#     && (pixelToHex { x: 2, y: 9 }) == expected
+#     && (pixelToHex { x: 2, y: 10 }) == expected
+#     && (pixelToHex { x: 2, y: 11 }) == expected
+#     && (pixelToHex { x: 2, y: 12 }) != expected
 
 add = \a, b -> doubled (a.column + b.column) (a.row + b.row)
 clampCube = \min, max -> \cell ->
@@ -40,7 +97,7 @@ clampCube = \min, max -> \cell ->
         <= max.row
 
 minCell = doubled 0 0
-maxCell = doubled 12 16
+maxCell = doubled 12 15
 clamped = clampCube minCell maxCell
 
 expect
@@ -49,7 +106,7 @@ expect
     clamped (doubled -1 0)
     |> Bool.not
 expect
-    clamped (doubled 13 0)
+    clamped (doubled 15 0)
     |> Bool.not
 expect
     clamped (doubled 0 17)
@@ -83,14 +140,12 @@ clamp = \test ->
                 maxCell.row - 1
             else
                 maxCell.row
-
-
         else
             test.row
     { column: c, row: r }
 
 expect
-    actual = clamp (doubled 13 17)
+    actual = clamp (doubled 11 17)
     expected = doubled 11 15
     actual == expected
 
@@ -100,8 +155,8 @@ expect
     actual == expected
 
 expect
-    actual = clamp (doubled 13 15)
-    expected = doubled 11 15
+    actual = clamp (doubled 14 14)
+    expected = doubled 12 14
     actual == expected
 expect
     actual = clamp (doubled 1 17)
@@ -139,12 +194,12 @@ expect
     actual == expected
 
 doubleNeighbors = [
-    doubled 0 2,
     doubled 1 -1,
     doubled -1 -1,
-    doubled 0 -2,
     doubled -1 1,
     doubled 1 1,
+    doubled 0 -2,
+    doubled 0 2,
 ]
 
 neighborsOf = \cell ->
@@ -155,14 +210,15 @@ neighborsOf = \cell ->
 expect
     actual = neighborsOf (doubled 6 6)
     expected = [
-        doubled 6 8,
+        doubled 6 4,
         doubled 7 5,
         doubled 5 5,
-        doubled 6 4,
+        doubled 6 8,
         doubled 5 7,
         doubled 7 7,
     ]
-    actual == expected
+    List.all expected \expec -> List.contains actual expec
+
 
 expect
     n = neighborsOf (doubled 0 0)
@@ -178,7 +234,7 @@ expect
         doubled 12 4,
         doubled 11 7,
     ]
-    actual == expected
+    List.all expected \expec -> List.contains actual expec
 
 graph = \isBlocked -> \cell -> Ok (neighborsOf cell |> List.dropIf isBlocked)
 findPath = \from, to -> cubeLerp from to
@@ -187,12 +243,11 @@ findGraph : Doubled, Doubled, (Doubled -> Bool) -> _
 findGraph = \from, to, isBlocked ->
     Graph.astar {
         isTarget: \c -> c == to,
-        estimator : \candidate -> hexDistance candidate to,
+        estimator: \candidate -> hexDistance candidate to,
         root: from,
-        graph: (graph isBlocked)
+        graph: graph isBlocked,
     }
     |> Result.map .1
-
 
 findGraph2 : Doubled, Doubled, (Doubled -> Bool) -> Result (List Doubled) [NotFound]
 findGraph2 = \from, to, isBlocked ->
@@ -200,7 +255,7 @@ findGraph2 = \from, to, isBlocked ->
         isTarget: \c -> c == to,
         estimator: \candidate -> hexDistance candidate to,
         root: from,
-        graph: (graph isBlocked),
+        graph: graph isBlocked,
     }
     |> Result.mapErr \_ -> NotFound
     |> Result.map .1
@@ -271,13 +326,12 @@ expect
     expected = Ok [doubled 0 0, doubled 1 1, doubled 2 0]
     actual == expected
 
-pathToLine = \path, bp ->
-    List.map path \cell ->
-        point = Hex.hexToPixel cell
-        {
-            x: (point.x + bp.x) |> Num.toI32,
-            y: (point.y + bp.y) |> Num.toI32,
-        }
+pathToLine = \path ->
+    List.mapWithIndex path \from, i ->
+        List.get path (i + 1)
+        |> Result.map \to -> Segment from to
+        |> Result.withDefault End
+
 
 hexDistance : Doubled, Doubled -> I32
 hexDistance = \from, to ->
@@ -290,6 +344,8 @@ pointLerp = \a, b, progress -> {
     x: lerp (Num.toI32 a.x) (Num.toI32 b.x) progress |> Num.round,
     y: lerp (Num.toI32 a.y) (Num.toI32 b.y) progress |> Num.round,
 }
+
+## Lerping with 1.0
 
 cubeLerp : Doubled, Doubled -> List Doubled
 cubeLerp = \a, b ->
@@ -316,7 +372,6 @@ lerp = \a, b, t ->
     bb = Num.toFrac b
     (bb - aa) |> Num.mul t |> Num.add aa
 
-
 drawHex = \cell, point, _sprite ->
     x = point.x |> Num.add (cell.column |> Num.mul hexWidth) |> Num.sub halfWidth |> Num.toI32
     y = point.y |> Num.add (cell.row |> Num.mul hexHeight) |> Num.sub halfHeight |> Num.toI32
@@ -329,34 +384,42 @@ drawHex = \cell, point, _sprite ->
     #     width: Num.round (1.33 * Num.toFrac hexWidth),
     # }
     # W4.setShapeColors! colors
-    # W4.setDrawColors! colors
-    W4.oval { x, y, height: Num.toU32 (2 * hexHeight), width: Num.round (Num.toFrac hexWidth |> Num.mul 1.33)}
-    # Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
+    W4.setShapeColors! {border: Color4, fill: None }
+    # W4.oval! { x, y, height: Num.toU32 (2 * hexHeight), width: Num.round (Num.toFrac hexWidth |> Num.mul 1.33) }
+    Sprite.blit! Assets.filledHex { x: x, y : y }
+    W4.setTextColors! { fg: Color1, bg: None }
+    Task.ok {x, y}
+# Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
 
-# _pixelToHex = \{ x, y } ->
-#     base = 0.57735
-#     baseq = 0.6666667
-#     q = x |> Num.toF32 |> Num.mul baseq |> Num.div 8.0
-#     yy = y |> Num.toF32 |> Num.mul base
-#     xx = x |> Num.toF32 |> Num.mul -0.3333
-#     r = (xx + yy) |> Num.div 8.0
-#     roundCubic q r |> cubicToDouble
+pixelToHex = \{ x, y } ->
+    base = 0.57735
+    baseq = 0.6666667
+    q = x |> Num.toF32 |> Num.mul baseq |> Num.div 8.0
+    yy = y |> Num.toF32 |> Num.mul base
+    xx = x |> Num.toF32 |> Num.mul -0.3333
+    r = (xx + yy) |> Num.div 8.0
+    roundCubic q r |> cubicToDouble
 
-# roundCubic = \q, r ->
-#     s = (r + q) |> Num.mul -1.0
-#     qq = Num.round q
-#     rr = Num.round r
-#     ss = Num.round s
-#     qqDiff = Num.toF32 qq |> Num.sub (Num.toF32 q) |> Num.abs
-#     rrDiff = Num.toF32 rr |> Num.sub (Num.toF32 r) |> Num.abs
-#     ssDiff = Num.toF32 ss |> Num.sub (Num.toF32 s) |> Num.abs
-#     if qqDiff > rrDiff && qqDiff > ssDiff then
-#         { q: (ss + rr) |> Num.mul -1, s: ss, r: rr }
-#     else if rrDiff > ssDiff then
-#         { r: (qq + ss) |> Num.mul -1, q: qq, s: ss }
-#     else
-#         { s: (rr + qq) |>Num.mul -1, r: rr, q: qq }
+expect
+    actual = pixelToHex { x: 0, y: 9 }
+    expected = doubled 0 2
+    actual == expected
 
-# cubicToDouble = \{ q, r } ->
-#     doubled q (2 * r + q)
+roundCubic = \q, r ->
+    s = (r + q) |> Num.mul -1.0
+    qq = Num.round q
+    rr = Num.round r
+    ss = Num.round s
+    qqDiff = Num.toF32 qq |> Num.sub (Num.toF32 q) |> Num.abs
+    rrDiff = Num.toF32 rr |> Num.sub (Num.toF32 r) |> Num.abs
+    ssDiff = Num.toF32 ss |> Num.sub (Num.toF32 s) |> Num.abs
+    if qqDiff > rrDiff && qqDiff > ssDiff then
+        { q: (ss + rr) |> Num.mul -1, s: ss, r: rr }
+    else if rrDiff > ssDiff then
+        { r: (qq + ss) |> Num.mul -1, q: qq, s: ss }
+    else
+        { s: (rr + qq) |> Num.mul -1, r: rr, q: qq }
+
+cubicToDouble = \{ q, r } ->
+    doubled q (2 * r + q)
 
