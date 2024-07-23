@@ -180,7 +180,7 @@ drawPlayerMove = \move, _hovering, get, color, _isBlocked ->
 
         Finished | Destination _ _ -> Task.ok {}
 
-drawUnit = \unit, bp, choice, theArmy ->
+drawUnit = \unit, bp, theArmy, isSelected ->
     point =
         Hex.addPoint bp unit.position
         |> Hex.addPoint { x: 4, y: 2 }
@@ -194,11 +194,7 @@ drawUnit = \unit, bp, choice, theArmy ->
             [FlipX],
     }
     border = armyColor unit.army
-    isSelected =
-        when choice is
-            Selected id _ -> unit.id == id
-            _ -> Bool.false
-    fill = if unit.army == theArmy && isSelected then Color4 else None
+    # fill = if unit.army == theArmy && isSelected then Color4 else None
     # W4.setShapeColors! { border: Color3, fill: None }
     # unitCell = unit.cell #Hex.pixToHex unit.position
     # blitHexagon! unitCell { x: boardRect.x, y: boardRect.y + 1 } Assets.hex
@@ -212,7 +208,7 @@ drawUnit = \unit, bp, choice, theArmy ->
                 t =
                     unit.cooldownRate
                     |> Num.sub (Num.toF32 timer)
-                    |> Num.div unit.moveRate
+                    |> Num.div unit.cooldownRate
                 w = Hex.lerp 0 Hex.hexWidth t |> Num.round
                 (
                     { fill: Color2, border: Color4 },
@@ -222,7 +218,7 @@ drawUnit = \unit, bp, choice, theArmy ->
             Ready -> ({ fill: Color2, border: Color4 }, Hex.hexWidth)
             Moving -> ({ fill: None, border: None }, Hex.hexWidth)
     W4.setShapeColors! readyColors
-    outlinePoint = Hex.addPoint point { x: -2, y: -4 }
+    outlinePoint = Hex.addPoint point { x: -2, y: -3 }
     W4.rect! {
         x: outlinePoint.x,
         y: outlinePoint.y,
@@ -230,7 +226,21 @@ drawUnit = \unit, bp, choice, theArmy ->
         height: 3,
     }
 
-    W4.setShapeColors { border, fill }
+    task =
+        if isSelected then
+            W4.setShapeColors { fill: None, border: if isSelected then Color3 else None }
+            |> Task.await \_ ->
+                W4.rect {
+                    x: point.x  - 4,
+                    y: point.y - 4,
+                    width: 16,
+                    height: 16,
+                }
+        else
+            Task.ok {}
+
+    task!
+    W4.setShapeColors { border, fill: None }
     |> Task.await \_ -> Sprite.blit unit.sprite drawTo
     |> Task.await \_ ->
         when unit.health is
@@ -246,7 +256,10 @@ drawUnits = \units, bp, choice, theArmy ->
     Task.loop units \unitsLeft ->
         when unitsLeft is
             [unit, .. as rest] ->
-                drawUnit unit bp choice theArmy
+                isSelected = when choice is
+                    Selected id _ | Destination id _ if unit.id == id -> Bool.true
+                    _ -> Bool.false
+                drawUnit unit bp theArmy isSelected
                 |> Task.map \_ -> Step rest
 
             [] -> Task.ok (Done [])
@@ -259,7 +272,7 @@ drawHealthBar = \health, point ->
         width,
         height,
         x: point.x |> Num.toI32,
-        y: point.y |> Num.toI32,
+        y: point.y |> Num.sub 2 |> Num.toI32,
     }
     healthPercent = Health.health health
     healthBar = Num.toFrac width |> Num.mul healthPercent |> Num.round
@@ -271,7 +284,7 @@ drawHealthBar = \health, point ->
     }
     W4.setShapeColors! { fill: Color3, border: Color1 }
     W4.rect! baseRect
-    W4.setShapeColors! { fill: Color2, border: None }
+    W4.setShapeColors! { fill: Color4, border: Color1 }
     W4.rect healthRect
 
 blitHexagon = \cell, point, sprite ->

@@ -132,7 +132,7 @@ initialUnits = [
     makeUnit { id: 7, type: Cavalry, army: Confederates, cell: doubled 12 8 }
     |> setUnitDest (doubled 4 10),
     makeUnit { id: 8, type: Infantry, army: Confederates, cell: doubled 12 0 }
-    |> setUnitDest (doubled 7 3),
+    |> setUnitDest (doubled 6 0),
 ]
 
 defaultGamepad : W4.Gamepad
@@ -152,8 +152,8 @@ getFirstMove = \forArmy, units ->
 
 newGame : U64, Army, Army -> GameState
 newGame = \startFrame, player1Army, player2Army ->
-    launchIn = 60 * 4
-    units = List.dropLast initialUnits 2 # [] #initialUnits
+    launchIn = 60 * 20
+    units = List.dropLast initialUnits 0 # [] #initialUnits
     unionMove = getFirstMove Union initialUnits
     confederateMove = getFirstMove Confederates initialUnits
 
@@ -246,7 +246,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
         Artillery ->
             {
                 id,
-                attackDamage: 25u32,
+                attackDamage: 45u32,
                 army,
                 position,
                 readiness: Ready,
@@ -255,7 +255,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 dest: cell,
                 lastPath,
                 moveRate: 120,
-                cooldownRate: 60.0,
+                cooldownRate: 60.0 * 6,
                 range: 2,
                 sprite: Assets.cannon,
             }
@@ -272,7 +272,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 dest: cell,
                 lastPath,
                 moveRate: 90,
-                cooldownRate: 50.0,
+                cooldownRate: 60.0 * 4,
                 range: 8,
                 sprite: Assets.infantry,
             }
@@ -280,7 +280,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
         Cavalry ->
             {
                 id,
-                attackDamage: 8u32,
+                attackDamage: 11u32,
                 army,
                 position,
                 readiness: Ready,
@@ -289,7 +289,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 dest: cell,
                 lastPath,
                 moveRate: 60,
-                cooldownRate: 30.0,
+                cooldownRate: 60.0 * 3,
                 range: 1,
                 sprite: Assets.horsey,
             }
