@@ -13,7 +13,7 @@ import Health
 UnitId : I8
 MoveChoice : [
     Selected UnitId (List Doubled),
-    Destination UnitId Doubled,
+    Destination UnitId Doubled (List Doubled),
     Finished,
 ]
 
@@ -91,6 +91,10 @@ GameState : {
         union : Doubled,
         confederate : Doubled,
     },
+    unitIndex: {
+        union: U8,
+        confederate: U8,
+    },
     moves : (MoveChoice, MoveChoice),
 }
 
@@ -128,7 +132,7 @@ initialUnits = [
     makeUnit { id: 4, type: Infantry, army: Union, cell: doubled 1 5 },
     makeUnit { id: 3, type: Infantry, army: Union, cell: doubled 0 4 },
     makeUnit { id: 6, type: Artillery, army: Confederates, cell: doubled 10 6 }
-    |> setUnitDest (doubled 7 1),
+    |> setUnitDest (doubled 6 2),
     makeUnit { id: 7, type: Cavalry, army: Confederates, cell: doubled 12 8 }
     |> setUnitDest (doubled 4 10),
     makeUnit { id: 8, type: Infantry, army: Confederates, cell: doubled 12 0 }
@@ -153,7 +157,7 @@ getFirstMove = \forArmy, units ->
 newGame : U64, Army, Army -> GameState
 newGame = \startFrame, player1Army, player2Army ->
     launchIn = 60 * 20
-    units = List.dropLast initialUnits 0 # [] #initialUnits
+    units = initialUnits #List.dropLast initialUnits 0 # [] #initialUnits
     unionMove = getFirstMove Union initialUnits
     confederateMove = getFirstMove Confederates initialUnits
 
@@ -161,6 +165,10 @@ newGame = \startFrame, player1Army, player2Army ->
         startFrame,
         units,
         launchIn,
+        unitIndex: {
+            union: 0,
+            confederate: 0,
+        },
         moves: (unionMove, confederateMove),
         armies: (player1Army, player2Army),
         map: {
@@ -175,22 +183,24 @@ newGame = \startFrame, player1Army, player2Army ->
                 doubled 6 8,
                 doubled 5 7,
                 doubled 7 7,
+                doubled 10 4,
+                doubled 2 10,
+                doubled 3 11,
             ],
             launchPads: [
-                [
-                    doubled 3 9,
-                    doubled 2 10,
-                    doubled 3 11,
-                ],
+                # [
+                #     doubled 3 9,
+                #     doubled 2 10,
+                #     doubled 3 11,
+                # ],
                 [
                     doubled 5 3,
-                    doubled 6 2,
                     doubled 7 3,
                 ],
                 [
-                    doubled 9 9,
-                    doubled 10 10,
-                    doubled 9 11,
+                    doubled 5 9,
+                    doubled 6 10,
+                    doubled 7 9,
                 ],
             ],
         },
@@ -455,7 +465,7 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
 
 unitPathFromMove = \unit, move, isblocked ->
     when move is
-        Destination id chosen if id == unit.id ->
+        Destination id chosen _ if id == unit.id ->
             if isblocked chosen then
                 (unit.cell, unit.lastPath)
             else
@@ -874,25 +884,35 @@ renderInGame = \model, netplay, _frameCount ->
             (model.moves.0, model.hovering.union)
         else
             (model.moves.1, model.hovering.confederate)
-    # Drawing.drawGrid! model.map.obstacles Assets.hex boardRect
+
+    # drawMove = when theMove is
+    #     Selected id planned ->
+    #         unit = getUnitById id
+    #         (starting, destination) =
+    #             unit
+    #             |> Result.map \{ lastPath, position } -> (position, lastPath)
+    #             |> Result.withDefault ({ x: 0, y: 0 }, [])
+    #         Drawing.drawPaths planned destination starting
+
+        # Finished | Destination _ _ _ -> Task.ok {}
 
     drawObs = List.walk model.map.obstacles (Task.ok {}) \task, obs ->
         task!
         { x, y } = Hex.hexToPixel obs
-        W4.setShapeColors! { border: Color2, fill: None }
+        W4.setShapeColors! { border: Color4, fill: None }
         Drawing.blitHexagon! obs boardRect Assets.filledHex
         W4.setTextColors { fg: Color1, bg: None }
         |> Task.await \_ -> W4.text "@" { x: x + boardRect.x + 4, y: boardRect.y + y + 2 }
     # |> Task.await \_ -> W4.text "@" position
     Drawing.drawBoardRect! boardRect
-    W4.setTextColors! { fg: Color1, bg: Color4 }
     drawObs!
 
     getOwner = \pad -> getPadOwner model.units pad
     Drawing.drawPads! model.map.launchPads getOwner
     Drawing.drawLaunchTimer! msRemaining totalMs
     W4.setPrimaryColor! Color2
-    Drawing.drawPlayerMove! theMove theHoverCell getUnitById Color2 isOccupied
+
+    Drawing.drawPlayerMove! theMove getUnitById Color2
     W4.setPrimaryColor! Color3
     Drawing.drawHoverPositon! theHoverCell
 
@@ -903,16 +923,12 @@ renderInGame = \model, netplay, _frameCount ->
 
     unitSummary =
         when theMove is
-            Selected id _ | Destination id _ ->
-                myPath =
-                    when theMove is
-                        Selected _ path -> path
-                        _ -> []
+            Selected id path | Destination id _ path ->
                 getUnitById id
-                |> Result.map \unit -> getSummary unit myPath
+                |> Result.map \unit -> getSummary unit path
                 |> Result.withDefault "He dead ..."
 
-            _ -> ""
+            Finished -> ""
 
     shapeColors = { fill: Color1, border: Color4 }
     W4.setShapeColors! shapeColors
@@ -942,7 +958,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
     selected = getUnitFromClickedCell units hovering theArmy
     resultChoice =
         when currentChoice is
-            Destination unitId _ ->
+            Destination unitId _ _ ->
                 Ok
                     (
                         Selected unitId []
@@ -953,7 +969,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                 |> List.findFirst \{ cell, army } -> cell == hovering && army == theArmy
                 |> Result.map \u -> Selected u.id []
 
-            Selected id _ if wasPressed ->
+            Selected id path if wasPressed ->
                 getUnitById id
                 |> Result.try \u ->
                     if u.cell == hovering then
@@ -962,7 +978,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                         selected
                         |> Result.map \newUnit -> Selected newUnit.id []
                     else
-                        Ok (Destination u.id hovering)
+                        Ok (Destination u.id hovering path)
 
             Selected id prevPath ->
                 destUpdated =
@@ -982,11 +998,16 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                         if isOccupied hovering then
                             prevPath
                         else
-                            withoutMe = \cell -> if u.cell == cell then Bool.false else isOccupied cell
-                            List.get u.lastPath 1
-                            |> Result.try \nextPath -> Hex.findGraph nextPath hovering withoutMe
-                            |> Result.onErr \_ -> Hex.findGraph u.cell hovering isOccupied # Hex.findGraph u.cell hovering isOccupied
+                            withoutMe = isOccupied # \cell -> if u.cell == cell then Bool.false else isOccupied cell
+                            Hex.findGraph u.cell hovering withoutMe
+                            |> Result.map \p -> reroutePath p u.lastPath u.cell
                             |> Result.withDefault prevPath
+                            # List.get u.lastPath 1
+                            # |> Result.try \nextPath -> Hex.findGraph nextPath hovering withoutMe
+                            # |> Result.onErr \_ -> Hex.findGraph u.cell hovering isOccupied # Hex.findGraph u.cell hovering isOccupied
+
+                            # # |> Result.
+                            # |> Result.withDefault prevPath
                     |> Result.map \newPath -> Selected id newPath
                     |> Result.onErr \_ -> Ok Finished
                 else

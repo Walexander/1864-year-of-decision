@@ -167,7 +167,7 @@ drawHoverPositon = \cell ->
     W4.setShapeColors! { fill: None, border: Color4 }
     blitHexagon cell boardRect Assets.hex
 
-drawPlayerMove = \move, _hovering, get, color, _isBlocked ->
+drawPlayerMove = \move, get, color ->
     W4.setPrimaryColor! color
     when move is
         Selected id planned ->
@@ -178,9 +178,9 @@ drawPlayerMove = \move, _hovering, get, color, _isBlocked ->
                 |> Result.withDefault ({ x: 0, y: 0 }, [])
             drawPaths planned destination starting
 
-        Finished | Destination _ _ -> Task.ok {}
+        Finished | Destination _ _ _ -> Task.ok {}
 
-drawUnit = \unit, bp, theArmy, isSelected ->
+drawUnit = \unit, bp, _theArmy, isSelected ->
     point =
         Hex.addPoint bp unit.position
         |> Hex.addPoint { x: 4, y: 2 }
@@ -202,6 +202,7 @@ drawUnit = \unit, bp, theArmy, isSelected ->
     # currentCell = Hex.pixToHex unit.position
     # blitHexagon! currentCell { x: boardRect.x, y: boardRect.y + 1 } Assets.hex
 
+    outlinePoint = Hex.addPoint point { x: -2, y: Hex.hexHeight + 2 }
     (readyColors, width) =
         when unit.readiness is
             Cooldown timer ->
@@ -217,37 +218,58 @@ drawUnit = \unit, bp, theArmy, isSelected ->
 
             Ready -> ({ fill: Color2, border: Color4 }, Hex.hexWidth)
             Moving -> ({ fill: None, border: None }, Hex.hexWidth)
+
     W4.setShapeColors! readyColors
-    outlinePoint = Hex.addPoint point { x: -2, y: -3 }
     W4.rect! {
         x: outlinePoint.x,
         y: outlinePoint.y,
         width: width |> Num.toU32,
         height: 3,
     }
+    # drawReadiness =
+    #     when unit.readiness is
+    #         Ready -> Sprite.blit Assets.arrow outlinePoint
+    #         _ -> Task.ok {}
+            # Cooldown _ ->
+            #     # rem = Num.toF32 remaining
+            #     # rate = Num.toF32 cooldownRate
+            #     # t = rate |> Num.sub rem |> Num.div rate
+            #     # totalStars = Hex.lerp 0 4 t |> Num.floor
+            #     totalStars = 4
+            #     Task.loop (point, 0) \(drawAt, starsLeft) ->
+            #         if starsLeft >= totalStars then
+            #             Task.ok (Done {})
+            #         else
+            #             Sprite.blit Assets.arrow point
+            #             |> Task.map \_ -> Step ((Hex.addPoint { x: 4, y: 0 } drawAt), starsLeft + 1)
+
+    # drawReadiness!
+    xOffset = if unit.army == Union then -2 else 8
+
 
     task =
         if isSelected then
-            W4.setShapeColors { fill: None, border: if isSelected then Color3 else None }
+            W4.setShapeColors { fill: None, border: if isSelected then Color4 else None }
             |> Task.await \_ ->
                 W4.rect {
                     x: point.x  - 4,
-                    y: point.y - 4,
-                    width: 16,
-                    height: 16,
+                    y: point.y - 2,
+                    width: 15,
+                    height: 15,
                 }
         else
             Task.ok {}
 
     task!
+
     W4.setShapeColors { border, fill: None }
     |> Task.await \_ -> Sprite.blit unit.sprite drawTo
     |> Task.await \_ ->
         when unit.health is
             Living hp ->
                 drawHealthBar hp {
-                    x: point.x - 2,
-                    y: point.y + Hex.hexHeight + 3,
+                    x: point.x + xOffset,
+                    y: point.y + 2, # + Hex.hexHeight + 3,
                 }
 
             Dead _ -> Task.ok {}
@@ -257,34 +279,96 @@ drawUnits = \units, bp, choice, theArmy ->
         when unitsLeft is
             [unit, .. as rest] ->
                 isSelected = when choice is
-                    Selected id _ | Destination id _ if unit.id == id -> Bool.true
+                    Selected id _ | Destination id _ _ if unit.id == id -> Bool.true
                     _ -> Bool.false
                 drawUnit unit bp theArmy isSelected
+                # |> Task.await \_ -> drawReadiness unit
                 |> Task.map \_ -> Step rest
 
             [] -> Task.ok (Done [])
 
+
+
+drawReadiness = \unit ->
+    outlinePoint =
+        Hex.addPoint unit.position { x: 0, y: Hex.hexHeight * 2 }
+        |> Hex.addPoint boardRect
+
+    W4.setShapeColors! { border: Color3, fill: Color1 }
+    totalStars =
+        when unit.readiness is
+            Ready -> 4
+            Moving -> 0
+            Cooldown _ -> 2
+
+    Task.loop (outlinePoint, 0) \(drawAt, starsLeft) ->
+        if starsLeft >= totalStars then
+            Task.ok (Done {})
+        else
+            Sprite.blit Assets.arrow drawAt
+            |> Task.map \_ -> Step ((Hex.addPoint { x: 4, y: 0 } drawAt), starsLeft + 1)
+    # when unit.readiness is
+    #     Ready -> Sprite.blit Assets.arrow outlinePoint
+    #     Cooldown _ ->
+    #         # rem = Num.toF32 remaining
+    #         # rate = Num.toF32 unit.cooldownRate
+    #         # t = rate |> Num.sub rem |> Num.div rate
+    #         # totalStars = Hex.lerp 0 4 t |> Num.floor
+    #         totalStars = 4
+    #     Moving -> Task.ok {}
+
+    # makeItWork
+    # (readyColors, width) =
+    #     when unit.readiness is
+    #         Cooldown timer ->
+    #             t =
+    #                 unit.cooldownRate
+    #                 |> Num.sub (Num.toF32 timer)
+    #                 |> Num.div unit.cooldownRate
+    #             w = Hex.lerp 0 Hex.hexWidth t |> Num.round
+    #             (
+    #                 { fill: Color2, border: Color4 },
+    #                 w,
+    #             )
+
+    #         Ready -> ({ fill: Color2, border: Color4 }, Hex.hexWidth)
+    #         Moving -> ({ fill: None, border: None }, Hex.hexWidth)
+
+    # (readyColors, width) = ({ fill: Color2, border: Color4 }, Hex.hexWidth)
+    # W4.setShapeColors! readyColors
+    # W4.rect {
+    #     x: outlinePoint.x,
+    #     y: outlinePoint.y,
+    #     width: width |> Num.toU32,
+    #     height: 3,
+    # }
+
 drawHealthBar : Health.Health, Hex.Point -> _
 drawHealthBar = \health, point ->
-    height = Num.toU32 3
-    width = Hex.hexWidth |> Num.toFrac |> Num.round |> Num.toU32
+    width = Num.toU32 1
+    height = Hex.hexHeight |> Num.toFrac |> Num.mul 1.5 |> Num.round |> Num.sub 1 |> Num.toU32
     baseRect = {
         width,
-        height,
+        height: height,
         x: point.x |> Num.toI32,
-        y: point.y |> Num.sub 2 |> Num.toI32,
+        y: point.y |> Num.sub 3 |> Num.toI32,
     }
     healthPercent = Health.health health
-    healthBar = Num.toFrac width |> Num.mul healthPercent |> Num.round
+
+    healthBar = Num.toFrac height
+        |> Num.mul healthPercent
+        |> Num.round
+        |> \barHeight -> if healthPercent < 1.0 then Num.min (height - 1) barHeight else barHeight
+        |> Num.toU32 |> Num.max 3u32
     healthRect = {
-        height,
-        width: healthBar |> Num.toU32,
+        width,
+        height: healthBar,
         x: baseRect.x,
-        y: baseRect.y,
+        y: baseRect.y + Num.toI32 (height - healthBar),
     }
-    W4.setShapeColors! { fill: Color3, border: Color1 }
+    W4.setShapeColors! { fill: Color3, border: Color3 }
     W4.rect! baseRect
-    W4.setShapeColors! { fill: Color4, border: Color1 }
+    W4.setShapeColors! { fill: Color4, border: Color4 }
     W4.rect healthRect
 
 blitHexagon = \cell, point, sprite ->
