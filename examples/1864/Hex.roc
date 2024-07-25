@@ -1,9 +1,27 @@
-module [Doubled, Point, addPoint, pixelToHex, pixToHex, clamp, findGraph2, findGraph, hexDistance, neighborsOf, pathToLine, hexHeight, hexWidth, halfWidth, halfHeight, lerp, cubeLerp, hexToPixel, doubled, findPath, pointLerp]
+module [
+    Doubled,
+    Point,
+    addPoint,
+    pixelToHex,
+    pixToHex,
+    clamp,
+    findGraph2,
+    findGraph,
+    hexDistance,
+    neighborsOf,
+    pathToLine,
+    hexHeight,
+    hexWidth,
+    halfWidth,
+    halfHeight,
+    lerp,
+    cubeLerp,
+    hexToPixel,
+    doubled,
+    findPath,
+    pointLerp,
+]
 import Graph
-import w4.Sprite
-import Assets
-import w4.W4
-import w4.Task exposing [Task]
 
 Point : { x : I32, y : I32 }
 Doubled : {
@@ -29,8 +47,10 @@ addPoint = \a, b -> {
 }
 hexToPixel : Doubled -> Point
 hexToPixel = \{ row, column } -> {
-    x: column |> Num.mul hexWidth, #|> Num.add 2,
-    y: row |> Num.mul hexHeight, #|> Num.add 3,
+    x: column |> Num.mul hexWidth,
+    # |> Num.add 2,
+    y: row |> Num.mul hexHeight,
+    # |> Num.add 3,
 }
 # x = col * h + 2+
 # col = (x - 2) / h+
@@ -218,7 +238,6 @@ expect
     ]
     List.all expected \expec -> List.contains actual expec
 
-
 expect
     n = neighborsOf (doubled 0 0)
     List.contains n (doubled 0 2)
@@ -277,7 +296,7 @@ expect
             (doubled 1 3)
             (doubled 3 3)
             (\{ column, row } -> column == 2 && row == 4)
-    expected = [ doubled 1 3, doubled  2 2, doubled 3 3 ]
+    expected = [doubled 1 3, doubled 2 2, doubled 3 3]
     actual == Ok expected
 ## Should find shortest three-step path when one blocked
 expect
@@ -287,7 +306,7 @@ expect
             (doubled 1 3)
             # \_ -> Bool.false
             (\{ column, row } -> column == 2 && row == 4)
-    expected = [ doubled 3 7, doubled  2 6, doubled 1 5, doubled 1 3 ]
+    expected = [doubled 3 7, doubled 2 6, doubled 1 5, doubled 1 3]
     actual == Ok expected
 ## findGraph should return a single item
 ## when from and to are equal
@@ -351,7 +370,6 @@ pathToLine = \path ->
         |> Result.map \to -> Segment from to
         |> Result.withDefault End
 
-
 hexDistance : Doubled, Doubled -> I32
 hexDistance = \from, to ->
     dcol = Num.sub from.column to.column |> Num.abs
@@ -362,7 +380,7 @@ hexDistance = \from, to ->
     |> Num.max 0.0
     |> Num.round
     |> Num.add dcol
-    # dcol + (Num.max 0 ((Num.sub drow dcol) |> Num.toFrac |> Num.div 2 |> Num.round))
+# dcol + (Num.max 0 ((Num.sub drow dcol) |> Num.toFrac |> Num.div 2 |> Num.round))
 
 expect
     actual = hexDistance (doubled 1 5) (doubled 1 3)
@@ -372,8 +390,6 @@ expect
     List.all
         (neighborsOf (doubled 1 5))
         \neighbor -> hexDistance (doubled 1 5) neighbor == 1
-
-
 
 pointLerp : Point, Point, F32 -> Point
 pointLerp = \a, b, progress -> {
@@ -408,23 +424,23 @@ lerp = \a, b, t ->
     bb = Num.toFrac b
     (bb - aa) |> Num.mul t |> Num.add aa
 
-drawHex = \cell, point, _sprite ->
-    x = point.x |> Num.add (cell.column |> Num.mul hexWidth) |> Num.sub halfWidth |> Num.toI32
-    y = point.y |> Num.add (cell.row |> Num.mul hexHeight) |> Num.sub halfHeight |> Num.toI32
-    # colors <- W4.getDrawColors |> Task.await
-    # W4.setShapeColors!{ fill: Color1, border: Color1 }
-    # W4.rect! {
-    #     x,
-    #     y,
-    #     height: Num.toU32 (2 * hexHeight),
-    #     width: Num.round (1.33 * Num.toFrac hexWidth),
-    # }
-    # W4.setShapeColors! colors
-    W4.setShapeColors! {border: Color4, fill: None }
-    # W4.oval! { x, y, height: Num.toU32 (2 * hexHeight), width: Num.round (Num.toFrac hexWidth |> Num.mul 1.33) }
-    Sprite.blit! Assets.filledHex { x: x, y : y }
-    W4.setTextColors! { fg: Color1, bg: None }
-    Task.ok {x, y}
+# drawHex = \cell, point, _sprite ->
+#     x = point.x |> Num.add (cell.column |> Num.mul hexWidth) |> Num.sub halfWidth |> Num.toI32
+#     y = point.y |> Num.add (cell.row |> Num.mul hexHeight) |> Num.sub halfHeight |> Num.toI32
+#     # colors <- W4.getDrawColors |> Task.await
+#     # W4.setShapeColors!{ fill: Color1, border: Color1 }
+#     # W4.rect! {
+#     #     x,
+#     #     y,
+#     #     height: Num.toU32 (2 * hexHeight),
+#     #     width: Num.round (1.33 * Num.toFrac hexWidth),
+#     # }
+#     # W4.setShapeColors! colors
+#     W4.setShapeColors! {border: Color4, fill: None }
+#     # W4.oval! { x, y, height: Num.toU32 (2 * hexHeight), width: Num.round (Num.toFrac hexWidth |> Num.mul 1.33) }
+#     Sprite.blit! Assets.filledHex { x: x, y : y }
+#     W4.setTextColors! { fg: Color1, bg: None }
+#     Task.ok {x, y}
 # Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
 
 pixelToHex = \{ x, y } ->

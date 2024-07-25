@@ -213,8 +213,6 @@ newGame = \startFrame, player1Army, player2Army ->
 
 baseState : Model
 baseState = {
-    # background: Assets.flame,
-    # backgrounds: [ Assets.velvet, Assets.bloodMoon, Assets.dawn, Assets.flame ],
     frameCount: Num.toU64 0,
     palette: palette,
     inputs: (defaultGamepad, defaultGamepad),
@@ -226,11 +224,7 @@ baseState = {
 init : Task Model []
 init =
     W4.setPalette! palette
-    # W4.preserveFrameBuffer!
     Task.ok baseState
-# Task.ok { baseState &
-#     screenState: InGame (newGame frameCount Union Confederates)
-# }
 
 Unit : {
     id : I8,
@@ -460,7 +454,9 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
         UpdatePathTo destination _ ->
             { original &
                 dest: destination,
-                lastPath: Hex.findGraph cell dest cannotMoveTo # |> Result.map \updatedPath -> reroutePath updatedPath original.lastPath original.cell
+                lastPath: Hex.findGraph cell dest cannotMoveTo
+                ##  Maybe?
+                # |> Result.map \updatedPath -> reroutePath updatedPath original.lastPath original.cell
                 |> Result.withDefault [],
             }
 
@@ -484,19 +480,6 @@ isCellOccupied = \units, obstacles ->
     \cell ->
         List.contains occupied cell
         || List.contains obstacles cell
-
-# shadeRow47 = \x, y, c ->
-#     if y == 46 || y >= 154 then Color1
-#     else if y == 40 && x > 73 && x < 83 then
-#         Color1
-#     else if y != 47 then c
-#     else
-#         when c is
-#             Color1 -> Color4
-#             Color4 -> Color1
-#             Color2 -> Color3
-#             Color3 -> Color2
-#             None -> Color2
 
 update : Model -> Task Model []
 update = \model ->
@@ -726,30 +709,6 @@ boardRect = {
 }
 frameCountToSeconds = \x -> Num.toFrac x |> Num.div 60
 
-# updateBackground : Model -> Model
-# updateBackground = \gameState ->
-#     {
-#         gameState &
-#         background:
-#             when gameState.screenState is
-#                 TitleScreen _ -> getArt gameState
-#                 InGame _ -> getArt gameState
-#                 GameOver { winner } ->
-#                     when winner is
-#                         Union -> Assets.dawn
-#                         Confederates -> Assets.flame
-#     }
-
-# getArt : Model -> Sprite
-# getArt = \model ->
-#     if model.frameCount % 301 != 0 then
-#         model.background
-#     else
-#         totalBackgrounds = List.len model.backgrounds
-#         (Num.toU32 model.frameCount) % (Num.toU32 totalBackgrounds)
-#         |> \index -> List.get model.backgrounds (Num.toU64 index)
-#             |> Result.withDefault model.background
-
 getHoverCell = \hoverCell, gamePad, lastGamepad ->
     hoverCell
     |> \{ row, column } ->
@@ -869,7 +828,6 @@ renderInGame = \model, netplay, _frameCount ->
     thePlayer = getCurrentPlayer netplay
     theArmy = playerArmy thePlayer
     getUnitById = makeUnitIdLocator model.units
-    isOccupied = isCellOccupied model.units model.map.obstacles
     totalMs =
         model.launchIn
         |> frameCountToSeconds
@@ -887,17 +845,6 @@ renderInGame = \model, netplay, _frameCount ->
         else
             (model.moves.1, model.hovering.confederate)
 
-    # drawMove = when theMove is
-    #     Selected id planned ->
-    #         unit = getUnitById id
-    #         (starting, destination) =
-    #             unit
-    #             |> Result.map \{ lastPath, position } -> (position, lastPath)
-    #             |> Result.withDefault ({ x: 0, y: 0 }, [])
-    #         Drawing.drawPaths planned destination starting
-
-    # Finished | Destination _ _ _ -> Task.ok {}
-
     drawObs = List.walk model.map.obstacles (Task.ok {}) \task, obs ->
         task!
         { x, y } = Hex.hexToPixel obs
@@ -905,7 +852,6 @@ renderInGame = \model, netplay, _frameCount ->
         Drawing.blitHexagon! obs boardRect Assets.filledHex
         W4.setTextColors { fg: Color1, bg: None }
         |> Task.await \_ -> W4.text "@" { x: x + boardRect.x + 4, y: boardRect.y + y + 2 }
-    # |> Task.await \_ -> W4.text "@" position
     Drawing.drawBoardRect! boardRect
     drawObs!
 
@@ -930,7 +876,7 @@ renderInGame = \model, netplay, _frameCount ->
         when theMove is
             Selected id path | Destination id _ path ->
                 getUnitById id
-                |> Result.map \unit -> getSummary unit path
+                |> Result.map \unit -> getUnitSummary unit path
                 |> Result.withDefault "He dead ..."
 
             Finished -> ""
@@ -964,10 +910,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
     resultChoice =
         when currentChoice is
             Destination unitId _ _ ->
-                Ok
-                    (
-                        Selected unitId []
-                    )
+                Ok (Selected unitId [])
 
             Finished if wasPressed ->
                 units
@@ -997,25 +940,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                         |> Result.map \u -> u.cell != last
                     |> Result.withDefault Bool.true
                 if unitMoved || destUpdated then
-                    getUnitById id
-                    |> Result.map \u ->
-                        withoutMe = \cell ->
-                            if u.cell == cell then
-                                Bool.false
-                            else
-                                isOccupied cell
-                        if withoutMe hovering then
-                            prevPath
-                        else
-                            Hex.findGraph u.cell hovering withoutMe
-                            |> Result.map \p ->
-                                when u.readiness is
-                                    Moving ->
-                                        reroutePath p u.lastPath u.cell
-                                    _ -> p
-                            |> Result.withDefault prevPath
-                    |> Result.map \newPath -> Selected id newPath
-                    |> Result.onErr \_ -> Ok Finished
+                    updatePlayerPlannedPath id hovering prevPath getUnitById isOccupied
                 else
                     Ok (Selected id prevPath)
 
@@ -1025,29 +950,63 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
     |> Result.mapErr \_ -> {}
     |> Result.withDefault currentChoice
 
-getSummary = \unit, planned ->
+updatePlayerPlannedPath = \id, hovering, prevPath, getUnitById, isOccupied ->
+    getUnitById id
+    |> Result.map \u ->
+        withoutMe = \cell ->
+            if u.cell == cell then
+                Bool.false
+            else
+                isOccupied cell
+        if withoutMe hovering then
+            prevPath
+        else
+            Hex.findGraph u.cell hovering withoutMe
+            |> Result.map \p ->
+                when u.readiness is
+                    Moving ->
+                        reroutePath p u.lastPath u.cell
+
+                    _ -> p
+            |> Result.withDefault prevPath
+    |> Result.map \newPath -> Selected id newPath
+    |> Result.onErr \_ -> Ok Finished
+
+getUnitSummary = \unit, planned ->
     id = unit.id
     next =
         List.get unit.lastPath 1
         |> Result.map \n -> "$(Num.toStr n.column),$(Num.toStr n.row)"
         |> Result.withDefault "none"
 
-    readyState =
-        when unit.readiness is
-            Cooldown ticked -> "C<$(ticked |> frameCountToSeconds |> Num.mul 10 |> Num.round |> Num.toFrac |> Num.div 10 |> Num.toStr)>"
-            Moving -> "M"
-            Ready -> "R"
+    readyState = when unit.readiness is
+        Cooldown ticked ->
+            tickSeconds =
+                ticked
+                |> frameCountToSeconds
+                |> Num.mul 10
+                |> Num.round
+                |> Num.toFrac |> Num.div 10 |> Num.toStr
+            "C<$(tickSeconds)>"
+        Moving -> "M"
+        Ready -> "R"
 
-    health =
-        when unit.health is
-            Living hp -> Health.health hp |> Num.mul 100 |> Num.round |> Num.toFrac |> Num.div 100 |> Num.toStr
-            Dead time -> "Dead since $(time |> Num.toStr)"
+    health = when unit.health is
+        Living hp ->
+            Health.health hp
+            |> Num.mul 100
+            |> Num.round
+            |> Num.toFrac
+            |> Num.div 100
+            |> Num.toStr
+        Dead time -> "Dead since $(time |> Num.toStr)"
+    unitPos = "$(Num.toStr unit.position.x),$(Num.toStr unit.position.y)"
+    distance = "$(Hex.hexDistance unit.cell unit.dest |> Num.toStr)]/$(List.len unit.lastPath |> Num.toStr)"
     """
     #$(Num.toStr id)/H:$(health)
-    $(Num.toStr unit.cell.column),$(Num.toStr unit.cell.row)->$(next) $(Num.toStr unit.position.x),$(Num.toStr unit.position.y)
-    dest:$(Num.toStr unit.dest.column),$(Num.toStr unit.dest.row) [$(Hex.hexDistance unit.cell unit.dest |> Num.toStr)]/$(List.len unit.lastPath |> Num.toStr)
+    $(Num.toStr unit.cell.column),$(Num.toStr unit.cell.row)->$(next) $(unitPos)
+    dest:$(Num.toStr unit.dest.column),$(Num.toStr unit.dest.row) $(distance)
     [$(List.len unit.lastPath |> Num.toStr):$(List.len planned |> Num.toStr)] {$(readyState)}
-
     """
 
 runCombat = \units ->
@@ -1063,8 +1022,7 @@ runCombat = \units ->
             getTargeting units u
             |> Result.map \target -> (u, target, u.attackDamage) ## <-- u.damage
         else
-            Err NoEnemy
-    ## Now walk over the list of (attacker, defender, damage) triples
+            Err NoEnemy ## Now walk over the list of (attacker, defender, damage) triples
     ## and accumulate an updated list of units
     |> List.walk units \accum, (source, target, damage) ->
         ## Update `readinesss` of attacking unit
@@ -1173,3 +1131,26 @@ expect
                 Dead _ -> 0
     actual == expected
 
+# updateBackground : Model -> Model
+# updateBackground = \gameState ->
+#     {
+#         gameState &
+#         background:
+#             when gameState.screenState is
+#                 TitleScreen _ -> getArt gameState
+#                 InGame _ -> getArt gameState
+#                 GameOver { winner } ->
+#                     when winner is
+#                         Union -> Assets.dawn
+#                         Confederates -> Assets.flame
+#     }
+
+# getArt : Model -> Sprite
+# getArt = \model ->
+#     if model.frameCount % 301 != 0 then
+#         model.background
+#     else
+#         totalBackgrounds = List.len model.backgrounds
+#         (Num.toU32 model.frameCount) % (Num.toU32 totalBackgrounds)
+#         |> \index -> List.get model.backgrounds (Num.toU64 index)
+#             |> Result.withDefault model.background
