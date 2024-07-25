@@ -153,7 +153,6 @@ astar : { isTarget : a -> Bool, root : a, graph : Graph2 a, estimator : Estimato
 astar = \{ isTarget, root, estimator, graph } ->
     aStar isTarget estimator root graph
 
-
 # aStarHelper does not die
 # expect
 #     dict = makeCosts "A"
@@ -164,10 +163,10 @@ astar = \{ isTarget, root, estimator, graph } ->
 ## aStar terminates with empty graph
 expect
     actual = astar3 {
-        isTarget: (\_ -> Bool.false),
+        isTarget: \_ -> Bool.false,
         estimator: constZero,
         root: "A",
-        graph: emptyGraph
+        graph: emptyGraph,
     }
     expected = Err NotFound
     actual == expected
@@ -175,23 +174,26 @@ expect
 ## aStar It terminates when target not found
 expect
     actual = astar3 {
-        isTarget: (\_ -> Bool.false),
+        isTarget: \_ -> Bool.false,
         estimator: constZero,
         root: "A",
-        graph: testGraph2
+        graph: testGraph2,
     }
     expected = Err NotFound
     actual == expected
 
 ## aStar finds the one starting with "C"
 expect
-    actual = Result.map (astar3 {
-        isTarget: (\v -> Str.startsWith v "C"),
-        estimator: constZero,
-        root: "A",
-        graph: testGraph2
-    }) .0
-    dbg actual
+    actual = Result.map
+        (
+            astar3 {
+                isTarget: \v -> Str.startsWith v "C",
+                estimator: constZero,
+                root: "A",
+                graph: testGraph2,
+            }
+        )
+        .0
 
     expected = Ok "Ccorrect"
 
@@ -200,13 +202,12 @@ expect
 expect
     actual =
         astar3 {
-            isTarget: (\v -> Str.startsWith v "C"),
+            isTarget: \v -> Str.startsWith v "C",
             estimator: constZero,
             root: "A",
-            graph: testGraph2
+            graph: testGraph2,
         }
         |> Result.map .0
-    dbg actual
 
     expected = Ok "Ccorrect"
 
@@ -216,10 +217,10 @@ expect
 expect
     actual =
         astar3 {
-            isTarget: (\v -> Str.startsWith v "B"),
+            isTarget: \v -> Str.startsWith v "B",
             estimator: constZero,
             root: "A",
-            graph: testGraph2
+            graph: testGraph2,
         }
     expected = Ok ("B", ["A", "B"])
     actual == expected
@@ -240,6 +241,7 @@ aStarHelper : (a -> Bool),
     Graph2 a
     ->
     Result (a, Parents a) [NotFound]
+    where a implements Hash & Eq & Inspect
 aStarHelper = \isTarget, sorter, stack, costs, parents, graph ->
     when stack is
         # we have run out of nodes, Err
@@ -274,50 +276,31 @@ aStarHelper = \isTarget, sorter, stack, costs, parents, graph ->
                         aStarHelper isTarget sorter rest costs parents graph
 
 aStarStep = \neighbors, rest, current, currentCost, costs, parents, sorter ->
-    neighbors # discard the nodes we have already *seen*
-    |> List.keepIf (\n -> Result.isErr (findCost n costs))
-    |> \newbies ->
-        addCosts newbies currentCost costs
-        |> \newCosts -> {
-            costs: newCosts,
-            parents: addParents current newbies parents,
-            stack:
-                List.concat rest newbies
-                |> List.keepOks \a -> findCost a newCosts
-                |> List.concat (List.map newbies \x -> (x, currentCost))
-                |> List.sortWith sorter
-                |> List.map .0,
-        }
-    # newCosts = addCosts filtered currentCost costs
-    # newStack =
-    #     List.concat rest filtered
-    #     |> List.keepOks \a -> findCost a newCosts
-    #     |> List.sortWith sorter
-    #     |> List.map .0
-    # # return a new search context
-    # {
-    #     stack: newStack,
-    #     parents: addParents current filtered parents,
-    #     costs: newCosts,
-    #     # addCosts filtered currentCost costs,
-    # }
-
+    newbies =
+        neighbors # discard the nodes we have already *seen*
+        |> List.keepIf (\n -> Result.isErr (findCost n costs))
+    newCosts = addCosts newbies currentCost costs
+    stack = List.concat rest newbies
+        |> List.keepOks \a -> findCost a newCosts
+        |> List.sortWith sorter
+    {
+        costs: newCosts,
+        parents: addParents current newbies parents,
+        stack: stack |> List.map .0,
+    }
 ## aStar finds shortest path to "C"
 expect
-    # actual =
-    #     aStar (\v -> Str.startsWith v "C") constZero "A" testGraphMultipath
-
     actual =
         astar3 {
-            isTarget: (\v -> Str.startsWith v "C"),
+            isTarget: \v -> Str.startsWith v "C",
             estimator: constZero,
             root: "A",
-            graph: testGraphMultipath
+            graph: testGraphMultipath,
         }
     expected = Ok ("C", ["A", "C"])
     actual == expected
 
-# ## It finds the one starting with "B"
+# # ## It finds the one starting with "B"
 expect
     actual =
         aStar (\v -> Str.startsWith v "B") constZero "A" testGraph2
@@ -325,18 +308,18 @@ expect
 
     actual == expected
 
-## It finds the shortest path
+# ## It finds the shortest path
 expect
     actual = astar3 {
-        isTarget: (\v -> Str.startsWith v "X"),
+        isTarget: \v -> Str.startsWith v "X",
         estimator: constZero,
         root: "A",
-        graph: testGraphMultipath
+        graph: testGraphMultipath,
     }
     expected = Ok ("XYZ", ["A", "B", "XYZ"])
     actual == expected
 
-astar3 = \{isTarget, estimator, graph, root} ->
+astar3 = \{ isTarget, estimator, graph, root } ->
     stepFn = \neighbors, currentNode, nextStack, costs, parents ->
         currentCost =
             findCost currentNode costs
@@ -349,9 +332,8 @@ astar3 = \{isTarget, estimator, graph, root} ->
             |> \newCosts -> {
                 costs: newCosts,
                 parents: addParents currentNode newbies parents,
-                stack:
-                    List.map newbies \node -> (node, currentCost + (estimator node))
-                    |> List.walk nextStack \accum, value -> PriorityQueue.push accum value
+                stack: List.map newbies \node -> (node, currentCost + (estimator node))
+                |> List.walk nextStack \accum, value -> PriorityQueue.push accum value,
             }
     aStarHelper3 : PriorityQueue (a, I32), CostDict a, Parents a -> Result (a, Parents a) [NotFound]
     aStarHelper3 = \thisStack, costs, parents ->
