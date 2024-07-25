@@ -91,9 +91,9 @@ GameState : {
         union : Doubled,
         confederate : Doubled,
     },
-    unitIndex: {
-        union: U8,
-        confederate: U8,
+    unitIndex : {
+        union : U8,
+        confederate : U8,
     },
     moves : (MoveChoice, MoveChoice),
 }
@@ -134,9 +134,9 @@ initialUnits = [
     makeUnit { id: 6, type: Artillery, army: Confederates, cell: doubled 10 6 }
     |> setUnitDest (doubled 6 2),
     makeUnit { id: 7, type: Cavalry, army: Confederates, cell: doubled 12 8 }
-    |> setUnitDest (doubled 4 10),
+    |> setUnitDest (doubled 5 1),
     makeUnit { id: 8, type: Infantry, army: Confederates, cell: doubled 12 0 }
-    |> setUnitDest (doubled 6 0),
+    |> setUnitDest (doubled 4 10),
 ]
 
 defaultGamepad : W4.Gamepad
@@ -157,7 +157,7 @@ getFirstMove = \forArmy, units ->
 newGame : U64, Army, Army -> GameState
 newGame = \startFrame, player1Army, player2Army ->
     launchIn = 60 * 20
-    units = initialUnits #List.dropLast initialUnits 0 # [] #initialUnits
+    units = initialUnits # List.dropLast initialUnits 0 # [] #initialUnits
     unionMove = getFirstMove Union initialUnits
     confederateMove = getFirstMove Confederates initialUnits
 
@@ -256,7 +256,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
         Artillery ->
             {
                 id,
-                attackDamage: 45u32,
+                attackDamage: 18u32,
                 army,
                 position,
                 readiness: Ready,
@@ -417,7 +417,7 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
                     Cooldown countdown if countdown > 0 -> Cooldown (countdown - 1)
                     Cooldown _ -> Ready
                     otherwise -> otherwise
-            { original & readiness }
+            { original & readiness, lastPath: [] }
 
         DoneMoving finalDestination ->
             { original &
@@ -460,7 +460,8 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
         UpdatePathTo destination _ ->
             { original &
                 dest: destination,
-                lastPath: Hex.findGraph cell dest cannotMoveTo |> Result.withDefault [],
+                lastPath: Hex.findGraph cell dest cannotMoveTo # |> Result.map \updatedPath -> reroutePath updatedPath original.lastPath original.cell
+                |> Result.withDefault [],
             }
 
 unitPathFromMove = \unit, move, isblocked ->
@@ -478,8 +479,10 @@ unitPathFromMove = \unit, move, isblocked ->
         _ -> (unit.dest, unit.lastPath)
 
 isCellOccupied : List Unit, List Doubled -> (Doubled -> Bool)
-isCellOccupied = \units, obstacles -> \cell ->
-        List.any units \unit -> unit.cell == cell
+isCellOccupied = \units, obstacles ->
+    occupied = List.map units \u -> u.cell
+    \cell ->
+        List.contains occupied cell
         || List.contains obstacles cell
 
 # shadeRow47 = \x, y, c ->
@@ -656,7 +659,6 @@ renderTitleScreen = \state, frameCount ->
     gameName |> W4.text! { x: textX, y: boardRect.y }
     W4.setTextColors! { fg: Color2, bg: None }
     " $(title) " |> W4.text! { x: textX, y: boardRect.y + 10 }
-    # title |> W4.text! { x: textX + (7 * 8), y: boardRect.y }
     W4.setTextColors! { bg: Color2, fg: Color3 }
     " $(readyMessage) " |> W4.text! { x: textX - 12, y: halfY + 10 }
     W4.setTextColors! { fg: Color4, bg: None }
@@ -894,7 +896,7 @@ renderInGame = \model, netplay, _frameCount ->
     #             |> Result.withDefault ({ x: 0, y: 0 }, [])
     #         Drawing.drawPaths planned destination starting
 
-        # Finished | Destination _ _ _ -> Task.ok {}
+    # Finished | Destination _ _ _ -> Task.ok {}
 
     drawObs = List.walk model.map.obstacles (Task.ok {}) \task, obs ->
         task!
@@ -911,14 +913,17 @@ renderInGame = \model, netplay, _frameCount ->
     Drawing.drawPads! model.map.launchPads getOwner
     Drawing.drawLaunchTimer! msRemaining totalMs
     W4.setPrimaryColor! Color2
-
     Drawing.drawPlayerMove! theMove getUnitById Color2
     W4.setPrimaryColor! Color3
     Drawing.drawHoverPositon! theHoverCell
 
+    isSelected = \theId ->
+        when theMove is
+            Selected id _ | Destination id _ _ -> id == theId
+            _ -> Bool.false
     _ <-
         List.keepIf model.units \u -> isAlive u.health
-        |> \units -> Drawing.drawUnits units boardRect theMove theArmy
+        |> \units -> Drawing.drawUnits units boardRect isSelected theArmy
         |> Task.await
 
     unitSummary =
@@ -985,7 +990,6 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                     List.last prevPath
                     |> Result.map \prevDest -> prevDest != hovering
                     |> Result.withDefault Bool.true
-
                 unitMoved =
                     List.first prevPath
                     |> Result.try \last ->
@@ -995,19 +999,21 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                 if unitMoved || destUpdated then
                     getUnitById id
                     |> Result.map \u ->
-                        if isOccupied hovering then
+                        withoutMe = \cell ->
+                            if u.cell == cell then
+                                Bool.false
+                            else
+                                isOccupied cell
+                        if withoutMe hovering then
                             prevPath
                         else
-                            withoutMe = isOccupied # \cell -> if u.cell == cell then Bool.false else isOccupied cell
                             Hex.findGraph u.cell hovering withoutMe
-                            |> Result.map \p -> reroutePath p u.lastPath u.cell
+                            |> Result.map \p ->
+                                when u.readiness is
+                                    Moving ->
+                                        reroutePath p u.lastPath u.cell
+                                    _ -> p
                             |> Result.withDefault prevPath
-                            # List.get u.lastPath 1
-                            # |> Result.try \nextPath -> Hex.findGraph nextPath hovering withoutMe
-                            # |> Result.onErr \_ -> Hex.findGraph u.cell hovering isOccupied # Hex.findGraph u.cell hovering isOccupied
-
-                            # # |> Result.
-                            # |> Result.withDefault prevPath
                     |> Result.map \newPath -> Selected id newPath
                     |> Result.onErr \_ -> Ok Finished
                 else
@@ -1091,7 +1097,7 @@ expect
         {
             id: 1,
             cooldownRate: 50.0,
-            readiness: Cooldown 25u32,
+            readiness: Cooldown 150,
             army: Confederates,
             cell: doubled 3 3,
             health: Living (Health.make 100),
@@ -1104,7 +1110,7 @@ expect
             when health is
                 Living h -> Health.health h
                 _ -> 0
-    expected = [0.95, 0.9]
+    expected = [1.00, 0.95]
     actual == expected
 
 ## runCombat should not over/underflow

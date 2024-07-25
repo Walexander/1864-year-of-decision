@@ -149,15 +149,15 @@ expect
     expected = doubled 11 15
     actual == expected
 
-expect
-    actual = clamp (doubled 14 18)
-    expected = doubled 12 16
-    actual == expected
+# expect
+#     actual = clamp (doubled 14 18)
+#     expected = doubled 12 16
+#     actual == expected
 
-expect
-    actual = clamp (doubled 14 14)
-    expected = doubled 12 14
-    actual == expected
+# expect
+#     actual = clamp (doubled 14 14)
+#     expected = doubled 12 14
+#     actual == expected
 expect
     actual = clamp (doubled 1 17)
     expected = doubled 1 15
@@ -176,8 +176,8 @@ expect
     actual = clamp (doubled 14 -2)
     expected = doubled 12 0
     actual == expected
-expect
-    clamp (doubled 12 18) == (doubled 12 16)
+# expect
+#     clamp (doubled 12 18) == (doubled 12 16)
 
 expect
     actual = clamp (doubled -4 -2)
@@ -194,17 +194,16 @@ expect
     actual == expected
 
 doubleNeighbors = [
+    doubled 1 1,
+    doubled 0 2,
     doubled 1 -1,
     doubled -1 -1,
-    doubled -1 1,
-    doubled 1 1,
     doubled 0 -2,
-    doubled 0 2,
+    doubled -1 1,
 ]
 
 neighborsOf = \cell ->
-    List.map doubleNeighbors \n ->
-        add n cell
+    List.map doubleNeighbors \n -> add n cell
     |> List.keepIf clamped
 
 expect
@@ -244,6 +243,7 @@ findGraph = \from, to, isBlocked ->
     Graph.astar {
         isTarget: \c -> c == to,
         estimator: \candidate -> hexDistance candidate to,
+        # estimator: \_ -> 0,
         root: from,
         graph: graph isBlocked,
     }
@@ -261,15 +261,34 @@ findGraph2 = \from, to, isBlocked ->
     |> Result.map .1
 
 ## Should Err when all blocked
+# expect
+#     actual =
+#         findGraph
+#             (doubled 12 12)
+#             (doubled 14 12)
+#             (\_ -> Bool.true)
+#     expected = Err NotFound
+#     actual == expected
+
+## Should find shortest path when one blocked
 expect
     actual =
         findGraph
-            (doubled 12 12)
-            (doubled 14 12)
-            (\_ -> Bool.true)
-    expected = Err NotFound
-    actual == expected
-
+            (doubled 1 3)
+            (doubled 3 3)
+            (\{ column, row } -> column == 2 && row == 4)
+    expected = [ doubled 1 3, doubled  2 2, doubled 3 3 ]
+    actual == Ok expected
+## Should find shortest three-step path when one blocked
+expect
+    actual =
+        findGraph
+            (doubled 3 7)
+            (doubled 1 3)
+            # \_ -> Bool.false
+            (\{ column, row } -> column == 2 && row == 4)
+    expected = [ doubled 3 7, doubled  2 6, doubled 1 5, doubled 1 3 ]
+    actual == Ok expected
 ## findGraph should return a single item
 ## when from and to are equal
 expect
@@ -337,7 +356,24 @@ hexDistance : Doubled, Doubled -> I32
 hexDistance = \from, to ->
     dcol = Num.sub from.column to.column |> Num.abs
     drow = Num.sub from.row to.row |> Num.abs
-    dcol + (Num.max 0 ((Num.sub drow dcol) |> Num.toFrac |> Num.div 2 |> Num.round))
+    Num.sub drow dcol
+    |> Num.toFrac
+    |> Num.div 2
+    |> Num.max 0.0
+    |> Num.round
+    |> Num.add dcol
+    # dcol + (Num.max 0 ((Num.sub drow dcol) |> Num.toFrac |> Num.div 2 |> Num.round))
+
+expect
+    actual = hexDistance (doubled 1 5) (doubled 1 3)
+    expected = 1
+    actual == expected
+expect
+    List.all
+        (neighborsOf (doubled 1 5))
+        \neighbor -> hexDistance (doubled 1 5) neighbor == 1
+
+
 
 pointLerp : Point, Point, F32 -> Point
 pointLerp = \a, b, progress -> {

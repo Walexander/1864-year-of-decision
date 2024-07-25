@@ -271,23 +271,17 @@ drawUnit = \unit, bp, _theArmy, isSelected ->
                     x: point.x + xOffset,
                     y: point.y + 2, # + Hex.hexHeight + 3,
                 }
-
             Dead _ -> Task.ok {}
 
-drawUnits = \units, bp, choice, theArmy ->
+drawUnits = \units, bp, isSelected, theArmy ->
     Task.loop units \unitsLeft ->
         when unitsLeft is
             [unit, .. as rest] ->
-                isSelected = when choice is
-                    Selected id _ | Destination id _ _ if unit.id == id -> Bool.true
-                    _ -> Bool.false
-                drawUnit unit bp theArmy isSelected
+                drawUnit unit bp theArmy (isSelected unit.id)
                 # |> Task.await \_ -> drawReadiness unit
                 |> Task.map \_ -> Step rest
 
             [] -> Task.ok (Done [])
-
-
 
 drawReadiness = \unit ->
     outlinePoint =
