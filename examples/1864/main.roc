@@ -132,11 +132,11 @@ initialUnits = [
     makeUnit { id: 4, type: Infantry, army: Union, cell: doubled 1 5 },
     makeUnit { id: 3, type: Infantry, army: Union, cell: doubled 0 4 },
     makeUnit { id: 6, type: Artillery, army: Confederates, cell: doubled 10 6 }
-    |> setUnitDest (doubled 6 2),
+    |> moveUnitTo (doubled 6 2),
     makeUnit { id: 7, type: Cavalry, army: Confederates, cell: doubled 12 8 }
-    |> setUnitDest (doubled 5 1),
+    |> moveUnitTo (doubled 5 1),
     makeUnit { id: 8, type: Infantry, army: Confederates, cell: doubled 12 0 }
-    |> setUnitDest (doubled 4 10),
+    |> moveUnitTo (doubled 4 10),
 ]
 
 defaultGamepad : W4.Gamepad
@@ -298,8 +298,9 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 sprite: Assets.horsey,
             }
 
-setUnitDest = \unit, dest -> { unit &
+moveUnitTo = \unit, dest -> { unit &
         dest,
+        readiness: Moving,
         lastPath: Hex.cubeLerp unit.cell dest,
     }
 
@@ -454,8 +455,7 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
         UpdatePathTo destination _ ->
             { original &
                 dest: destination,
-                lastPath: Hex.findGraph cell dest cannotMoveTo
-                ##  Maybe?
+                lastPath: Hex.findGraph cell dest cannotMoveTo ##  Maybe?
                 # |> Result.map \updatedPath -> reroutePath updatedPath original.lastPath original.cell
                 |> Result.withDefault [],
             }
@@ -798,9 +798,12 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
             accum
             { unitUpdate & position: unitUpdate.position }
 
+    combatModifiers2 = randList! { length: List.len units }
+    # W4.debug! "combat modifiers" combatModifiers2
+    combatModifiers = List.range {start: At 0, end: At (List.len units) }
     combatUnits =
         if frameCount % 6 == 0 then
-            runCombat units
+            runCombat units combatModifiers
             |> List.keepIf \{ health } -> isAlive health
         else
             units
@@ -979,27 +982,33 @@ getUnitSummary = \unit, planned ->
         |> Result.map \n -> "$(Num.toStr n.column),$(Num.toStr n.row)"
         |> Result.withDefault "none"
 
-    readyState = when unit.readiness is
-        Cooldown ticked ->
-            tickSeconds =
-                ticked
-                |> frameCountToSeconds
-                |> Num.mul 10
-                |> Num.round
-                |> Num.toFrac |> Num.div 10 |> Num.toStr
-            "C<$(tickSeconds)>"
-        Moving -> "M"
-        Ready -> "R"
+    readyState =
+        when unit.readiness is
+            Cooldown ticked ->
+                tickSeconds =
+                    ticked
+                    |> frameCountToSeconds
+                    |> Num.mul 10
+                    |> Num.round
+                    |> Num.toFrac
+                    |> Num.div 10
+                    |> Num.toStr
+                "C<$(tickSeconds)>"
 
-    health = when unit.health is
-        Living hp ->
-            Health.health hp
-            |> Num.mul 100
-            |> Num.round
-            |> Num.toFrac
-            |> Num.div 100
-            |> Num.toStr
-        Dead time -> "Dead since $(time |> Num.toStr)"
+            Moving -> "M"
+            Ready -> "R"
+
+    health =
+        when unit.health is
+            Living hp ->
+                Health.health hp
+                |> Num.mul 100
+                |> Num.round
+                |> Num.toFrac
+                |> Num.div 100
+                |> Num.toStr
+
+            Dead time -> "Dead since $(time |> Num.toStr)"
     unitPos = "$(Num.toStr unit.position.x),$(Num.toStr unit.position.y)"
     distance = "$(Hex.hexDistance unit.cell unit.dest |> Num.toStr)]/$(List.len unit.lastPath |> Num.toStr)"
     """
@@ -1009,23 +1018,47 @@ getUnitSummary = \unit, planned ->
     [$(List.len unit.lastPath |> Num.toStr):$(List.len planned |> Num.toStr)] {$(readyState)}
     """
 
-runCombat = \units ->
-    indexer = makeUnitIdIndexer units
-    ## First get all of the eligible attackers
-    ## and their single target
-    List.keepOks units \u ->
+getCombatOrders = \unitsAndModifiers ->
+    justUnits = List.map unitsAndModifiers .0
+    List.keepOks unitsAndModifiers \(u, modifier) ->
         canFire =
             when u.readiness is
                 Ready -> Bool.true
                 _ -> Bool.false
         if isAlive u.health && canFire then
-            getTargeting units u
-            |> Result.map \target -> (u, target, u.attackDamage) ## <-- u.damage
+            getTargeting justUnits u
+            |> Result.map \target ->
+                attack = Num.toF32 u.attackDamage
+                mod = Num.toF32 modifier |> Num.div 100f32 |> Num.add 1f32
+                damage =
+                    (mod)
+                    |> Num.mul (attack / 2)
+                    |> Num.round
+                    |> Num.toU32
+                (u, target, damage)
         else
-            Err NoEnemy ## Now walk over the list of (attacker, defender, damage) triples
-    ## and accumulate an updated list of units
-    |> List.walk units \accum, (source, target, damage) ->
-        ## Update `readinesss` of attacking unit
+            Err NoEnemy
+
+randList = \{ length } ->
+    List.range { start: At 0, end: At length }
+    |> List.walk (Task.ok []) \last, _ ->
+        last
+        |> Task.await \accum ->
+            W4.randBetween { start: 1, before: 100 }
+            |> Task.map \mod -> List.append accum mod
+
+runCombat = \units, modifiers ->
+    indexer = makeUnitIdIndexer units
+    # First get all of the eligible attackers
+    # and their single target
+    combatOrders =
+        List.map2 units modifiers \u, m -> (u, m)
+        |> getCombatOrders
+
+    # Now walk over the list of (attacker, defender, damage) triples
+    # and accumulate an updated list of units
+    List.walk combatOrders units \accum, (source, target, damage) ->
+        # Update `readinesss` of attacking unit
         updatedAccum =
             List.findFirstIndex accum \u -> u.id == source.id
             |> Result.map \attackerIdx ->
@@ -1055,21 +1088,29 @@ expect
         {
             id: 1,
             cooldownRate: 50.0,
-            readiness: Cooldown 150,
+            readiness: Ready,
             army: Confederates,
             cell: doubled 3 3,
             health: Living (Health.make 100),
             attackDamage: 10u32,
         },
     ]
+
     actual =
-        runCombat testUnits
+        runCombat testUnits [100, 100]
         |> List.map \{ health } ->
             when health is
                 Living h -> Health.health h
                 _ -> 0
-    expected = [1.00, 0.95]
-    actual == expected
+
+    expectedLessThan = List.map testUnits \u ->
+        when u.health is
+            Living h -> Health.health h
+            _ -> 0
+
+    List.all
+        (List.map2 actual expectedLessThan (\a, e -> a <= e))
+        \r -> r == Bool.true
 
 ## runCombat should not over/underflow
 expect
@@ -1093,7 +1134,7 @@ expect
             attackDamage: 10u32,
         },
     ]
-    actual = runCombat testUnits |> List.map \{ health } -> isAlive health
+    actual = runCombat testUnits [100, 100] |> List.map \{ health } -> isAlive health
     expected = [Bool.false, Bool.true]
     actual == expected
 

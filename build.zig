@@ -59,7 +59,7 @@ pub fn build(b: *std.Build) !void {
     lib.import_memory = true;
     lib.initial_memory = 65536;
     lib.max_memory = 131072;
-    lib.stack_size = 14752;
+    lib.stack_size = 18752;
     // lib.max_memory = 65536;
     // lib.stack_size = 14752;
 
