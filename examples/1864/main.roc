@@ -393,17 +393,12 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
     moveCountDown = frameCount % (Num.round moveRate)
     marchingOrder =
         when newPath is
-            [from, nextCell, ..] ->
-                isOccupied = cannotMoveTo nextCell
-                if isOccupied && newDest == nextCell then
-                    DoneMoving cell
-                else if isOccupied then
-                    UpdatePathTo dest newPath
-                else
-                    ProceedTo from nextCell newDest newPath
-
-            [nextCell] -> DoneMoving nextCell
             [] -> Stopped
+            [_] if moveCountDown == 0 -> Stopped
+            [nextCell] -> DoneMoving nextCell
+            [nextCell, destination] if cannotMoveTo destination -> DoneMoving nextCell
+            [_, nextCell, ..] if cannotMoveTo nextCell -> UpdatePathTo newDest newPath
+            [from, next, ..] -> ProceedTo from next newDest newPath
 
     when marchingOrder is
         Stopped ->
@@ -411,17 +406,21 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
                 when original.readiness is
                     Cooldown countdown if countdown > 0 -> Cooldown (countdown - 1)
                     Cooldown _ -> Ready
-                    otherwise -> otherwise
+                    Moving -> Cooldown (original.cooldownRate |> Num.round)
+                    other -> other
             { original & readiness, lastPath: [] }
 
         DoneMoving finalDestination ->
-            { original &
-                lastPath: List.dropFirst original.lastPath 1,
-                position: Hex.hexToPixel finalDestination,
-                readiness: Cooldown (original.cooldownRate |> Num.round),
-                dest: finalDestination,
-                cell: finalDestination,
-            }
+            position =
+                Hex.pointLerp
+                    (Hex.hexToPixel original.cell)
+                    (Hex.hexToPixel finalDestination)
+                    (
+                        moveCountDown
+                        |> Num.toFrac
+                        |> Num.div moveRate
+                    )
+            { original & position, lastPath: [] }
 
         ProceedTo _ nextCell destination _ if moveCountDown == 0 ->
             { original &
@@ -433,31 +432,29 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
 
         ProceedTo fromCell nextCell destination path ->
             position =
-                if moveCountDown == 0 then
-                    Hex.hexToPixel nextCell
-                else
-                    Hex.pointLerp
-                        (Hex.hexToPixel fromCell)
-                        (Hex.hexToPixel nextCell)
-                        (
-                            moveCountDown
-                            |> Num.toFrac
-                            |> Num.div moveRate
-                        )
+                Hex.pointLerp
+                    (Hex.hexToPixel fromCell)
+                    (Hex.hexToPixel nextCell)
+                    (
+                        moveCountDown
+                        |> Num.toFrac
+                        |> Num.div moveRate
+                    )
             { original &
                 dest: destination,
                 readiness: Moving,
-                lastPath: if moveCountDown == 0 then List.dropFirst path 1 else path,
+                lastPath: path,
                 cell: fromCell,
                 position: position,
             }
 
-        UpdatePathTo destination _ ->
+        UpdatePathTo destination nextPath ->
+            lastPath =
+                Hex.findGraph cell dest cannotMoveTo
+                |> Result.withDefault (List.dropLast nextPath 1)
             { original &
                 dest: destination,
-                lastPath: Hex.findGraph cell dest cannotMoveTo ##  Maybe?
-                # |> Result.map \updatedPath -> reroutePath updatedPath original.lastPath original.cell
-                |> Result.withDefault [],
+                lastPath,
             }
 
 unitPathFromMove = \unit, move, isblocked ->
@@ -800,7 +797,7 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
 
     combatModifiers2 = randList! { length: List.len units }
     # W4.debug! "combat modifiers" combatModifiers2
-    combatModifiers = List.range {start: At 0, end: At (List.len units) }
+    combatModifiers = List.range { start: At 0, end: At (List.len units) }
     combatUnits =
         if frameCount % 6 == 0 then
             runCombat units combatModifiers
