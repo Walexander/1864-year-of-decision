@@ -91,7 +91,6 @@ drawPath = \segments ->
                 toPoint = Hex.addPoint boardRect to |> Hex.addPoint hexFudgePoint
                 W4.line fromPoint toPoint
 
-
 drawPaths = \plannedPath, destPath, starting ->
     destLine = List.map destPath \cell -> Hex.hexToPixel cell
 
@@ -157,18 +156,21 @@ drawUnit = \unit, bp, _theArmy, isSelected ->
                     |> Num.div unit.cooldownRate
                 w = Hex.lerp 0 Hex.hexWidth t |> Num.round
                 (
-                    { fill: Color2, border: Color4 },
+                    { fill: Color2, border: None },
                     w,
                 )
 
-            Ready -> ({ fill: Color2, border: Color4 }, Hex.hexWidth)
+            Ready -> ({ fill: Color2, border: None }, Hex.hexWidth)
             Moving -> ({ fill: None, border: None }, Hex.hexWidth)
+
+    W4.setShapeColors! { fill: None, border: Color4 }
+    W4.rect! { x: outlinePoint.x, y: outlinePoint.y, width: Hex.hexWidth |> Num.toU32, height: 3u32 }
     W4.setShapeColors! readyColors
     W4.rect! {
-        x: outlinePoint.x,
-        y: outlinePoint.y,
-        width: width |> Num.toU32,
-        height: 3,
+        x: outlinePoint.x + 1,
+        y: outlinePoint.y + 1,
+        width: width - 2 |> Num.toU32,
+        height: 1,
     }
     xOffset = if unit.army == Union then -2 else 8
 
@@ -178,9 +180,9 @@ drawUnit = \unit, bp, _theArmy, isSelected ->
             |> Task.await \_ ->
                 W4.rect {
                     x: point.x - 4,
-                    y: point.y - 2,
+                    y: point.y - 3,
                     width: 15,
-                    height: 15,
+                    height: 16,
                 }
         else
             Task.ok {}

@@ -259,7 +259,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 dest: cell,
                 lastPath,
                 moveRate: 120,
-                cooldownRate: 60.0 * 6,
+                cooldownRate: 60.0 * 4,
                 range: 2,
                 sprite: Assets.cannon,
             }
@@ -276,7 +276,7 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 dest: cell,
                 lastPath,
                 moveRate: 90,
-                cooldownRate: 60.0 * 4,
+                cooldownRate: 60.0 * 3,
                 range: 8,
                 sprite: Assets.infantry,
             }
@@ -292,8 +292,8 @@ makeUnit = \{ type, id: inId, army, cell } ->
                 cell,
                 dest: cell,
                 lastPath,
-                moveRate: 60,
-                cooldownRate: 60.0 * 3,
+                moveRate: 50,
+                cooldownRate: 60.0 * 2.125,
                 range: 1,
                 sprite: Assets.horsey,
             }
@@ -397,7 +397,9 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
             [_] if moveCountDown == 0 -> Stopped
             [nextCell] -> DoneMoving nextCell
             [nextCell, destination] if cannotMoveTo destination -> DoneMoving nextCell
-            [_, nextCell, ..] if cannotMoveTo nextCell -> UpdatePathTo newDest newPath
+            [_, nextCell, ..] if cannotMoveTo nextCell ->
+                UpdatePathTo newDest newPath
+
             [from, next, ..] -> ProceedTo from next newDest newPath
 
     when marchingOrder is
@@ -451,9 +453,15 @@ updateUnit = \original, frameCount, move, cannotMoveTo ->
         UpdatePathTo destination nextPath ->
             lastPath =
                 Hex.findGraph cell dest cannotMoveTo
+                |> Result.onErr \_ ->
+                    Hex.closestNeighbors cell dest
+                    |> List.dropIf \neighbor -> cannotMoveTo neighbor
+                    |> List.first
+                    |> Result.try \aDest -> Hex.findGraph cell aDest cannotMoveTo
+                |> Result.onErr \_ -> Hex.findGraph cell (doubled 1 1) cannotMoveTo
                 |> Result.withDefault (List.dropLast nextPath 1)
             { original &
-                dest: destination,
+                dest: List.last lastPath |> Result.withDefault destination,
                 lastPath,
             }
 
@@ -859,9 +867,12 @@ renderInGame = \model, netplay, _frameCount ->
     Drawing.drawPads! model.map.launchPads getOwner
     Drawing.drawLaunchTimer! msRemaining totalMs
     W4.setPrimaryColor! Color2
-    Drawing.drawPlayerMove! theMove getUnitById Color2
+    Drawing.drawPlayerMove! model.moves.0 getUnitById Color2
+    Drawing.drawPlayerMove! model.moves.1 getUnitById Color3
+
     W4.setPrimaryColor! Color3
-    Drawing.drawHoverPositon! theHoverCell
+    Drawing.drawHoverPositon! model.hovering.union
+    Drawing.drawHoverPositon! model.hovering.confederate
 
     isSelected = \theId ->
         when theMove is
@@ -914,7 +925,7 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
 
             Finished if wasPressed ->
                 units
-                |> List.findFirst \{ cell, army } -> cell == hovering && army == theArmy
+                |> List.findFirst \{ cell, army } -> cell == hovering # && army == theArmy
                 |> Result.map \u -> Selected u.id []
 
             Selected id path if wasPressed ->

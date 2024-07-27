@@ -3,6 +3,7 @@ module [
     Point,
     addPoint,
     pixelToHex,
+    closestNeighbors,
     pixToHex,
     clamp,
     findGraph2,
@@ -442,6 +443,10 @@ lerp = \a, b, t ->
 #     W4.setTextColors! { fg: Color1, bg: None }
 #     Task.ok {x, y}
 # Sprite.blit sprite { x: Num.toI32 x, y: Num.toI32 y }
+
+closestNeighbors = \from, to ->
+    neighborsOf to
+    |> List.sortWith \a, b -> Num.compare (hexDistance from a) (hexDistance from b)
 
 pixelToHex = \{ x, y } ->
     base = 0.57735
