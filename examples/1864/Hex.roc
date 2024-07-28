@@ -1,6 +1,7 @@
 module [
     Doubled,
     Point,
+    add,
     addPoint,
     pixelToHex,
     closestNeighbors,

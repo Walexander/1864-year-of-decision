@@ -3,6 +3,7 @@ module [
     resetColors,
     drawBottomImage,
     drawTitle,
+    drawSelectionIndicator,
     drawUnits,
     drawBoardRect,
     drawPlayerMove,
@@ -91,15 +92,17 @@ drawPath = \segments ->
                 toPoint = Hex.addPoint boardRect to |> Hex.addPoint hexFudgePoint
                 W4.line fromPoint toPoint
 
-drawPaths = \plannedPath, destPath, starting ->
+drawPaths = \plannedPath, destPath, starting, color ->
     destLine = List.map destPath \cell -> Hex.hexToPixel cell
 
+    W4.setPrimaryColor! color
     plannedLine =
         plannedPath
         |> List.map \cell -> Hex.hexToPixel cell
-    W4.setPrimaryColor! Color2
+
     drawPath! (plannedLine |> Hex.pathToLine)
 
+    W4.setShapeColors! { fill: None, border: Color4 }
     _ <-
         List.last destPath
         |> Result.map \cell -> drawHoverPositon cell
@@ -115,7 +118,7 @@ drawHoverPositon = \cell ->
         |> Hex.addPoint { x: Hex.halfWidth + 1, y: Hex.halfHeight + 2 }
     W4.line! { x: x - 2, y: y } { x: x + 2, y }
     W4.line! { x: x, y: y - 2 } { x, y: y + 2 }
-    W4.setShapeColors! { fill: None, border: Color4 }
+    # W4.setShapeColors! { fill: None, border: Color4 }
     blitHexagon cell boardRect Assets.hex
 
 drawPlayerMove = \move, get, color ->
@@ -127,11 +130,11 @@ drawPlayerMove = \move, get, color ->
                 unit
                 |> Result.map \{ lastPath, position } -> (position, lastPath)
                 |> Result.withDefault ({ x: 0, y: 0 }, [])
-            drawPaths planned destination starting
+            drawPaths planned destination starting color
 
         Finished | Destination _ _ _ -> Task.ok {}
 
-drawUnit = \unit, bp, _theArmy, isSelected ->
+drawUnit = \unit, bp ->
     point =
         Hex.addPoint bp unit.position
         |> Hex.addPoint { x: 4, y: 2 }
@@ -174,20 +177,6 @@ drawUnit = \unit, bp, _theArmy, isSelected ->
     }
     xOffset = if unit.army == Union then -2 else 8
 
-    task =
-        if isSelected then
-            W4.setShapeColors { fill: None, border: if isSelected then Color4 else None }
-            |> Task.await \_ ->
-                W4.rect {
-                    x: point.x - 4,
-                    y: point.y - 3,
-                    width: 15,
-                    height: 16,
-                }
-        else
-            Task.ok {}
-    task!
-
     W4.setShapeColors { border, fill: None }
     |> Task.await \_ -> Sprite.blit unit.sprite drawTo
     |> Task.await \_ ->
@@ -201,14 +190,46 @@ drawUnit = \unit, bp, _theArmy, isSelected ->
 
             Dead _ -> Task.ok {}
 
-drawUnits = \units, bp, isSelected, theArmy ->
+drawUnits = \units, bp ->
     Task.loop units \unitsLeft ->
         when unitsLeft is
             [unit, .. as rest] ->
-                drawUnit unit bp theArmy (isSelected unit.id)
+                drawUnit unit bp # theArmy (isSelected unit.id)
                 |> Task.map \_ -> Step rest
 
             [] -> Task.ok (Done [])
+
+drawSelectionIndicator = \point, color ->
+    width = 15
+    height = 16
+    topLeft =
+        point
+        |> Hex.addPoint boardRect
+        |> Hex.addPoint { x: 0, y: -1 }
+    topRight = topLeft
+        |> Hex.addPoint { x: width, y: 0 }
+    bottomRight = topLeft
+        |> Hex.addPoint { x: width, y: height }
+    bottomLeft = topLeft
+        |> Hex.addPoint { x: 0, y: height }
+
+    W4.setPrimaryColor! color
+    W4.line! topLeft (Hex.addPoint topLeft { x: 4, y: 0 })
+    W4.line! topLeft (Hex.addPoint topLeft { x: 0, y: 4 })
+    W4.line! topRight (Hex.addPoint topRight { x: -4, y: 0 })
+    W4.line! topRight (Hex.addPoint topRight { x: 0, y: 4 })
+    W4.line! bottomLeft (Hex.addPoint bottomLeft { x: 0, y: -4 })
+    W4.line! bottomLeft (Hex.addPoint bottomLeft { x: 4, y: 0 })
+    W4.line! bottomRight (Hex.addPoint bottomRight { x: -4, y: 0 })
+    W4.line bottomRight (Hex.addPoint bottomRight { x: 0, y: -4 })
+    # |> Task.await \_ ->
+    #     W4.rect {
+    #         x: drawPoint.x,
+    #         y: drawPoint.y,
+    #         width: 15,
+    #         height: 16,
+    #     }
+
 
 drawHealthBar : Health.Health, Hex.Point -> _
 drawHealthBar = \health, point ->
