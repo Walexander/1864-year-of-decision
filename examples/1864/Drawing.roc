@@ -94,31 +94,29 @@ drawPath = \segments ->
 
 drawPaths = \plannedPath, destPath, starting, color ->
     destLine = List.map destPath \cell -> Hex.hexToPixel cell
-
     W4.setPrimaryColor! color
     plannedLine =
         plannedPath
         |> List.map \cell -> Hex.hexToPixel cell
-
     drawPath! (plannedLine |> Hex.pathToLine)
-
     W4.setShapeColors! { fill: None, border: Color4 }
     _ <-
         List.last destPath
-        |> Result.map \cell -> drawHoverPositon cell
+        |> Result.map \cell -> drawHoverPositon cell Color4
         |> Result.withDefault (Task.ok {})
         |> Task.await
 
     W4.setPrimaryColor! Color4
     drawPath (destLine |> List.set 0 starting |> Hex.pathToLine)
 
-drawHoverPositon = \cell ->
+drawHoverPositon = \cell, color ->
+    W4.setPrimaryColor! color
     { x, y } =
         Hex.addPoint boardRect (Hex.hexToPixel cell)
         |> Hex.addPoint { x: Hex.halfWidth + 1, y: Hex.halfHeight + 2 }
     W4.line! { x: x - 2, y: y } { x: x + 2, y }
     W4.line! { x: x, y: y - 2 } { x, y: y + 2 }
-    # W4.setShapeColors! { fill: None, border: Color4 }
+    W4.setShapeColors! { border: color, fill: None }
     blitHexagon cell boardRect Assets.hex
 
 drawPlayerMove = \move, get, color ->
@@ -165,7 +163,6 @@ drawUnit = \unit, bp ->
 
             Ready -> ({ fill: Color2, border: None }, Hex.hexWidth)
             Moving -> ({ fill: None, border: None }, Hex.hexWidth)
-
     W4.setShapeColors! { fill: None, border: Color4 }
     W4.rect! { x: outlinePoint.x, y: outlinePoint.y, width: Hex.hexWidth |> Num.toU32, height: 3u32 }
     W4.setShapeColors! readyColors
@@ -206,13 +203,15 @@ drawSelectionIndicator = \point, color ->
         point
         |> Hex.addPoint boardRect
         |> Hex.addPoint { x: 0, y: -1 }
-    topRight = topLeft
+    topRight =
+        topLeft
         |> Hex.addPoint { x: width, y: 0 }
-    bottomRight = topLeft
+    bottomRight =
+        topLeft
         |> Hex.addPoint { x: width, y: height }
-    bottomLeft = topLeft
+    bottomLeft =
+        topLeft
         |> Hex.addPoint { x: 0, y: height }
-
     W4.setPrimaryColor! color
     W4.line! topLeft (Hex.addPoint topLeft { x: 4, y: 0 })
     W4.line! topLeft (Hex.addPoint topLeft { x: 0, y: 4 })
@@ -222,14 +221,13 @@ drawSelectionIndicator = \point, color ->
     W4.line! bottomLeft (Hex.addPoint bottomLeft { x: 4, y: 0 })
     W4.line! bottomRight (Hex.addPoint bottomRight { x: -4, y: 0 })
     W4.line bottomRight (Hex.addPoint bottomRight { x: 0, y: -4 })
-    # |> Task.await \_ ->
-    #     W4.rect {
-    #         x: drawPoint.x,
-    #         y: drawPoint.y,
-    #         width: 15,
-    #         height: 16,
-    #     }
-
+# |> Task.await \_ ->
+#     W4.rect {
+#         x: drawPoint.x,
+#         y: drawPoint.y,
+#         width: 15,
+#         height: 16,
+#     }
 
 drawHealthBar : Health.Health, Hex.Point -> _
 drawHealthBar = \health, point ->
@@ -298,7 +296,7 @@ drawTitle = \point ->
 
 drawLaunchTimer = \remaining, total ->
     totalWidth = Hex.hexWidth |> Num.mul 3 |> Num.sub Hex.hexWidth |> Num.toFrac
-    launchWindowHeight = 22
+    launchWindowHeight = 26
     launchWindowWidth = totalWidth + 12
     barX =
         Num.toFrac (boardRect.x + (Num.toI32 boardRect.width))
@@ -314,7 +312,7 @@ drawLaunchTimer = \remaining, total ->
         |> Num.toFrac
         |> Num.div 2
         |> Num.round
-        |> Num.sub (Num.round (Num.toFrac launchWindowHeight / 2)) # |> Num.sub (Num.round (Num.toFrac Hex.hexHeight / 2))
+        |> Num.sub (Num.round (Num.toFrac launchWindowHeight / 2))
         |> Num.add 1
         |> Num.toI32
 
@@ -324,8 +322,6 @@ drawLaunchTimer = \remaining, total ->
         x: barX,
         y: barY,
     }
-    W4.setShapeColors! { border: Color2, fill: Color4 }
-    W4.rect! windowDims
     msg =
         if remaining <= 0 then
             ""
@@ -351,7 +347,6 @@ drawLaunchTimer = \remaining, total ->
         |> Num.sub (Num.round ((totalWidth) / 2))
 
     timerSize = Str.countUtf8Bytes msg
-    W4.setShapeColors! { border: Color2, fill: None }
     launchBarX = baseX
     launchBarY =
         Num.toI32 windowDims.height
@@ -362,103 +357,42 @@ drawLaunchTimer = \remaining, total ->
         x: launchBarX,
         y: launchBarY,
         width: Num.round totalWidth,
-        height: 6,
+        height: 4,
     }
-    W4.rect! launchBar
-    W4.setShapeColors! { border: Color1, fill: Color3 }
-    # W4.rect! { x: baseX, y: barY + 8, width, height: 5 }
-    W4.rect! { launchBar & width }
 
     x =
         Num.toFrac windowDims.x
         |> Num.add (Num.toFrac windowDims.width / 2)
         |> Num.sub (Num.toFrac timerSize |> Num.mul 8 |> Num.div 2)
         |> Num.round
-    W4.setTextColors! { bg: None, fg: Color1 }
-    msg |> W4.text! { x, y: barY + 3 |> Num.abs }
 
-# gameBorder = [
-#     Hex.doubled -1 -1,
-#     Hex.doubled 1 -1,
-#     Hex.doubled 3 -1,
-#     Hex.doubled 5 -1,
-#     Hex.doubled 7 -1,
-#     Hex.doubled 9 -1,
-#     Hex.doubled 11 -1,
-#     Hex.doubled 13 -1,
-#     Hex.doubled -1 1,
-#     Hex.doubled -1 3,
-#     Hex.doubled -1 5,
-#     Hex.doubled -1 7,
-#     Hex.doubled -1 9,
-#     Hex.doubled -1 11,
-#     Hex.doubled -1 13,
-#     Hex.doubled -1 15,
-#     Hex.doubled 0 16,
-#     Hex.doubled 2 16,
-#     Hex.doubled 4 16,
-#     Hex.doubled 6 16,
-#     Hex.doubled 8 16,
-#     Hex.doubled 10 16,
-#     Hex.doubled 12 16,
-#     Hex.doubled 13 1,
-#     Hex.doubled 13 3,
-#     Hex.doubled 13 5,
-#     Hex.doubled 13 7,
-#     Hex.doubled 13 9,
-#     Hex.doubled 13 11,
-#     Hex.doubled 13 13,
-#     Hex.doubled 13 15,
-# ]
-# drawReadiness = \unit ->
-#     outlinePoint =
-#         Hex.addPoint unit.position { x: 0, y: Hex.hexHeight * 2 }
-#         |> Hex.addPoint boardRect
-#     W4.setShapeColors! { border: Color3, fill: Color1 }
-#     totalStars =
-#         when unit.readiness is
-#             Ready -> 4
-#             Moving -> 0
-#             Cooldown _ -> 2
 
-#     Task.loop (outlinePoint, 0) \(drawAt, starsLeft) ->
-#         if starsLeft >= totalStars then
-#             Task.ok (Done {})
-#         else
-#             Sprite.blit Assets.arrow drawAt
-#             |> Task.map \_ -> Step (Hex.addPoint { x: 4, y: 0 } drawAt, starsLeft + 1)
-# when unit.readiness is
-#     Ready -> Sprite.blit Assets.arrow outlinePoint
-#     Cooldown _ ->
-#         # rem = Num.toF32 remaining
-#         # rate = Num.toF32 unit.cooldownRate
-#         # t = rate |> Num.sub rem |> Num.div rate
-#         # totalStars = Hex.lerp 0 4 t |> Num.floor
-#         totalStars = 4
-#     Moving -> Task.ok {}
+    (fill, fg) =
+        isFlashing =
+            if remaining < 1_000 then
+                Bool.true
+            else if remaining < 5_000 then
+                remaining % 500 > 250
+            else if remaining < 10_000 then
+                remaining % 1000 > 500
+            else
+                Bool.false
+        # flashing =
+        #     remaining < 1_000 |> Bool.and remaining % 100 > 100)
+        #     |> Bool.or (remaining < 5_000 |> Bool.and remaining % 1_000 > 500
+        if isFlashing then
+           (Color3, Color1)
+        else
+           (Color1, Color3)
+    shapeColor = { border: fg, fill }
+    launchColors = { border: Color4, fill: fg }
+    textColors = { bg: None, fg }
 
-# makeItWork
-# (readyColors, width) =
-#     when unit.readiness is
-#         Cooldown timer ->
-#             t =
-#                 unit.cooldownRate
-#                 |> Num.sub (Num.toF32 timer)
-#                 |> Num.div unit.cooldownRate
-#             w = Hex.lerp 0 Hex.hexWidth t |> Num.round
-#             (
-#                 { fill: Color2, border: Color4 },
-#                 w,
-#             )
-
-#         Ready -> ({ fill: Color2, border: Color4 }, Hex.hexWidth)
-#         Moving -> ({ fill: None, border: None }, Hex.hexWidth)
-
-# (readyColors, width) = ({ fill: Color2, border: Color4 }, Hex.hexWidth)
-# W4.setShapeColors! readyColors
-# W4.rect {
-#     x: outlinePoint.x,
-#     y: outlinePoint.y,
-#     width: width |> Num.toU32,
-#     height: 3,
-# }
+    W4.setShapeColors! shapeColor
+    W4.oval! windowDims
+    W4.setShapeColors! { border: Color2, fill: None }
+    W4.rect! launchBar
+    W4.setShapeColors! launchColors
+    W4.rect! { launchBar & width }
+    W4.setTextColors! textColors
+    msg |> W4.text! { x, y: barY + 6 |> Num.abs }
