@@ -92,8 +92,8 @@ GameState : {
         confederate : Doubled,
     },
     unitIndex : {
-        union : U8,
-        confederate : U8,
+        union : U64,
+        confederate : U64,
     },
     moves : (MoveChoice, MoveChoice),
 }
@@ -166,8 +166,8 @@ newGame = \startFrame, player1Army, player2Army ->
         units,
         launchIn,
         unitIndex: {
-            union: 0,
-            confederate: 0,
+            union: 1u64,
+            confederate: 1u64,
         },
         moves: (unionMove, confederateMove),
         armies: (player1Army, player2Army),
@@ -764,33 +764,41 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
         union: unionInputs.inputs.button1 && !unionInputs.last.button1,
         confederates: confedInputs.inputs.button1 && !confedInputs.last.button1,
     }
+    pressedZ = {
+        union: unionInputs.inputs.button2 && !unionInputs.last.button2,
+        confederates: confedInputs.inputs.button2 && !confedInputs.last.button2,
+    }
     getUnitById = makeUnitIdLocator model.units
 
     unionHoverCell =
         getHoverCell model.hovering.union unionInputs.inputs unionInputs.last
         |> Hex.clamp
 
-    unionMove =
+    (unionMove, nextUnionIndex) =
         updateMoveChoice model.moves.0 {
             isOccupied,
             getUnitById,
             wasPressed: pressed.union,
+            zPressed: pressedZ.union,
+            nextIndex: model.unitIndex.union,
             hovering: unionHoverCell,
             theArmy: Union,
-            units: model.units,
+            units: List.keepIf model.units \u -> u.army == Union,
         }
 
     confedHover =
         getHoverCell model.hovering.confederate confedInputs.inputs confedInputs.last
         |> Hex.clamp
-    confedMove =
+    (confedMove, nextConfedIndex) =
         updateMoveChoice model.moves.1 {
             isOccupied,
             getUnitById,
             wasPressed: pressed.confederates,
+            zPressed: pressedZ.confederates,
+            nextIndex: model.unitIndex.confederate,
             hovering: confedHover,
             theArmy: Confederates,
-            units: model.units,
+            units: List.keepIf model.units \u -> u.army == Confederates,
         }
 
     units = List.walk model.units [] \accum, u ->
@@ -803,9 +811,7 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
             accum
             { unitUpdate & position: unitUpdate.position }
 
-    combatModifiers2 = randList! { length: List.len units }
-    # W4.debug! "combat modifiers" combatModifiers2
-    combatModifiers = List.range { start: At 0, end: At (List.len units) }
+    combatModifiers = randList! { length: List.len units }
     combatUnits =
         if frameCount % 6 == 0 then
             runCombat units combatModifiers
@@ -818,8 +824,12 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
                 { model &
                     moves: (unionMove, confedMove),
                     hovering: {
-                        union: unionHoverCell,
-                        confederate: confedHover,
+                        union: maybeUpdateHoverCell isOccupied model.unitIndex.union nextUnionIndex unionHoverCell,
+                        confederate: maybeUpdateHoverCell isOccupied model.unitIndex.confederate nextConfedIndex confedHover,
+                    },
+                    unitIndex: {
+                        union: nextUnionIndex,
+                        confederate: nextConfedIndex,
                     },
                     launchTimer,
                     units: combatUnits,
@@ -831,6 +841,15 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
 
                 StaleMate -> crash "launch timer should not tick without winner"
     Task.ok nextState
+
+maybeUpdateHoverCell = \isOccupied, oldIndex, newIndex, current ->
+    if oldIndex != newIndex then
+        Hex.neighborsOf current
+        |> List.dropIf \c -> isOccupied c
+        |> List.first
+        |> Result.withDefault current
+    else
+        current
 
 renderInGame = \model, netplay, _frameCount ->
     thePlayer = getCurrentPlayer netplay
@@ -866,23 +885,31 @@ renderInGame = \model, netplay, _frameCount ->
     getOwner = \pad -> getPadOwner model.units pad
     Drawing.drawPads! model.map.launchPads getOwner
     Drawing.drawLaunchTimer! msRemaining totalMs
-    W4.setPrimaryColor! Color2
     Drawing.drawPlayerMove! model.moves.0 getUnitById Color2
     Drawing.drawPlayerMove! model.moves.1 getUnitById Color3
-
-    W4.setPrimaryColor! Color3
+    W4.setShapeColors! {border: armyColor Union, fill: None }
     Drawing.drawHoverPositon! model.hovering.union
+    W4.setShapeColors! {border: armyColor Confederates, fill: None }
     Drawing.drawHoverPositon! model.hovering.confederate
 
-    isSelected = \theId ->
+    selectedUnit =
         when theMove is
-            Selected id _ | Destination id _ _ -> id == theId
-            _ -> Bool.false
+            Selected id _ | Destination id _ _ ->
+                getUnitById id
+                |> Result.map \unit -> Chosen unit
+                |> Result.withDefault None
+            _ -> None
+
     _ <-
         List.keepIf model.units \u -> isAlive u.health
-        |> \units -> Drawing.drawUnits units boardRect isSelected theArmy
+        |> \units -> Drawing.drawUnits units boardRect # isSelected theArmy
         |> Task.await
 
+    task =
+        when selectedUnit is
+            Chosen u -> Drawing.drawSelectionIndicator (u.position) (armyColor u.army)
+            None -> Task.ok {}
+    task!
     unitSummary =
         when theMove is
             Selected id path | Destination id _ path ->
@@ -915,29 +942,41 @@ renderInGame = \model, netplay, _frameCount ->
     }
     Drawing.resetColors
 
-updateMoveChoice : MoveChoice, _ -> MoveChoice
-updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed, isOccupied, units } ->
+updateMoveChoice : MoveChoice, _ -> (MoveChoice, U64)
+updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, zPressed, wasPressed, nextIndex, isOccupied, units } ->
     selected = getUnitFromClickedCell units hovering theArmy
-    resultChoice =
+    total = List.len units
+    idx = if total > 0 then nextIndex % total else 0
+    (resultChoice, newIndex) =
         when currentChoice is
-            Destination unitId _ _ ->
-                Ok (Selected unitId [])
+            Destination _ _ _ | _ if zPressed ->
+                List.get units idx
+                |> Result.map \u -> (Selected u.id u.lastPath, idx + 1)
+                |> Result.withDefault (currentChoice, nextIndex)
+
+            Destination _ _ _ ->
+                List.get units idx
+                |> Result.map \u -> (Selected u.id u.lastPath, idx + 1)
+                |> Result.withDefault (currentChoice, nextIndex)
 
             Finished if wasPressed ->
                 units
-                |> List.findFirst \{ cell, army } -> cell == hovering # && army == theArmy
-                |> Result.map \u -> Selected u.id []
+                |> List.findFirst \{ cell, army } -> cell == hovering && army == theArmy
+                |> Result.map \u -> (Selected u.id [], nextIndex)
+                |> Result.withDefault (Finished, nextIndex)
 
             Selected id path if wasPressed ->
                 getUnitById id
-                |> Result.try \u ->
+                |> Result.map \u ->
                     if u.cell == hovering then
-                        Ok Finished
+                        (Finished, nextIndex)
                     else if isOccupied hovering then
                         selected
-                        |> Result.map \newUnit -> Selected newUnit.id []
+                        |> Result.map \newUnit -> (Selected newUnit.id newUnit.lastPath, nextIndex)
+                        |> Result.withDefault (Finished, nextIndex)
                     else
-                        Ok (Destination u.id hovering path)
+                        (Destination u.id hovering path, nextIndex)
+                |> Result.withDefault (currentChoice, nextIndex)
 
             Selected id prevPath ->
                 destUpdated =
@@ -951,15 +990,13 @@ updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, wasPressed,
                         |> Result.map \u -> u.cell != last
                     |> Result.withDefault Bool.true
                 if unitMoved || destUpdated then
-                    updatePlayerPlannedPath id hovering prevPath getUnitById isOccupied
+                    (updatePlayerPlannedPath id hovering prevPath getUnitById isOccupied, nextIndex)
                 else
-                    Ok (Selected id prevPath)
+                    (Selected id prevPath, nextIndex)
 
-            otherwise -> Ok otherwise
+            otherwise -> (otherwise, nextIndex)
 
-    resultChoice
-    |> Result.mapErr \_ -> {}
-    |> Result.withDefault currentChoice
+    (resultChoice, newIndex)
 
 updatePlayerPlannedPath = \id, hovering, prevPath, getUnitById, isOccupied ->
     getUnitById id
@@ -981,7 +1018,7 @@ updatePlayerPlannedPath = \id, hovering, prevPath, getUnitById, isOccupied ->
                     _ -> p
             |> Result.withDefault prevPath
     |> Result.map \newPath -> Selected id newPath
-    |> Result.onErr \_ -> Ok Finished
+    |> Result.withDefault Finished
 
 getUnitSummary = \unit, planned ->
     id = unit.id
