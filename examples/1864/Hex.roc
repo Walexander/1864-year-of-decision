@@ -4,6 +4,7 @@ module [
     add,
     addPoint,
     pixelToHex,
+    clamped,
     closestNeighbors,
     pixToHex,
     clamp,

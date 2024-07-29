@@ -479,12 +479,14 @@ unitPathFromMove = \unit, move, isblocked ->
 
         _ -> (unit.dest, unit.lastPath)
 
+cellObstacle : List Doubled -> (Doubled -> Bool)
+cellObstacle = \occupied -> \cell -> List.contains occupied cell
+
 isCellOccupied : List Unit, List Doubled -> (Doubled -> Bool)
 isCellOccupied = \units, obstacles ->
-    occupied = List.map units \u -> u.cell
-    \cell ->
-        List.contains occupied cell
-        || List.contains obstacles cell
+    List.map units (\u -> u.cell)
+    |> List.concat obstacles
+    |> cellObstacle
 
 update : Model -> Task Model []
 update = \model ->
@@ -714,28 +716,105 @@ boardRect = {
 }
 frameCountToSeconds = \x -> Num.toFrac x |> Num.div 60
 
-getHoverCell = \hoverCell, gamePad, lastGamepad ->
-    hoverCell
-    |> \{ row, column } ->
-        if gamePad.up && Bool.not lastGamepad.up then
-            { row: row - 2, column }
+getHoverCell = \hoverCell, gamePad, lastGamepad, isObstacle ->
+    go = \cell ->
+        cell
+        |> \{ row, column } ->
+            if gamePad.up && Bool.not lastGamepad.up then
+                { row: row - 2, column }
+            else
+                { row, column }
+        |> \{ row, column } ->
+            if gamePad.down && Bool.not lastGamepad.down then
+                { row: row + 2, column }
+            else
+                { row, column }
+        |> \{ row, column } ->
+            if gamePad.left && Bool.not lastGamepad.left then
+                { row: row + 1, column: column - 1 }
+            else
+                { row, column }
+        |> \{ row, column } ->
+            if gamePad.right && Bool.not lastGamepad.right then
+                { row: row + 1, column: column + 1 }
+            else
+                { row, column }
+    helper = \cell ->
+        next = go cell
+        if Hex.clamped next then
+            if isObstacle next then
+                helper (next)
+            else
+                next
         else
-            { row, column }
-    |> \{ row, column } ->
-        if gamePad.down && Bool.not lastGamepad.down then
-            { row: row + 2, column }
-        else
-            { row, column }
-    |> \{ row, column } ->
-        if gamePad.left && Bool.not lastGamepad.left then
-            { row: row + 1, column: column - 1 }
-        else
-            { row, column }
-    |> \{ row, column } ->
-        if gamePad.right && Bool.not lastGamepad.right then
-            { row: row + 1, column: column + 1 }
-        else
-            { row, column }
+            hoverCell
+    helper hoverCell
+
+testInput = {
+    up: Bool.false,
+    down: Bool.false,
+    left: Bool.false,
+    right: Bool.false,
+}
+
+expect
+    actual = getHoverCell (doubled 0 0) testInput testInput \_ -> Bool.false
+    expected = doubled 0 0
+    actual == expected
+expect
+    actual = getHoverCell (doubled 0 0) { testInput & down: Bool.true } testInput \_ -> Bool.false
+    expected = doubled 0 2
+    actual == expected
+expect
+    actual = getHoverCell (doubled 1 1) { testInput & left: Bool.true } testInput \_ -> Bool.false
+    expected = doubled 0 2
+    actual == expected
+expect
+    actual = getHoverCell (doubled 0 0) { testInput & right: Bool.true } testInput \_ -> Bool.false
+    expected = doubled 1 1
+    actual == expected
+
+expect
+    actual = getHoverCell (doubled 0 12) { testInput & right: Bool.true } testInput \_ -> Bool.false
+    expected = doubled 1 13
+    actual == expected
+
+# gethoverCell quits when it reachs a clamped cell
+expect
+    actual = getHoverCell (doubled 12 0) { testInput & right: Bool.true } testInput \_ -> Bool.false
+    expected = doubled 12 0
+    actual == expected
+
+expect
+    actual = getHoverCell (doubled 0 0) { testInput & down: Bool.true } testInput \_ -> Bool.false
+    expected = doubled 0 2
+    actual == expected
+
+# getHoverCell skips blocked cells below
+expect
+    actual = getHoverCell (doubled 0 0) { testInput & down: Bool.true } testInput \cell -> cell.row == 2 && cell.column == 0
+    expected = doubled 0 4
+    actual == expected
+
+# getHoverCell skips multiple blocked cells below
+expect
+    isOccupied = \cell -> List.contains [doubled 0 2, doubled 0 4] cell
+    actual = getHoverCell
+        (doubled 0 0)
+        { testInput & down: Bool.true }
+        testInput
+        isOccupied
+    expected = doubled 0 6
+    actual == expected
+
+# getHoverCell up after down is no op
+expect
+    isOccupied = \cell -> List.contains [doubled 0 2, doubled 0 4] cell
+    actual =
+        getHoverCell (doubled 0 0) { testInput & down: Bool.true } testInput isOccupied
+        |> getHoverCell { testInput & up: Bool.true } testInput isOccupied
+    expected = doubled 0 0
+    actual == expected
 
 makeUnitIdLocator = \units -> \queryId -> List.findFirst units \{ id } -> id == queryId
 makeUnitIdIndexer = \units -> \queryId -> List.findFirstIndex units \{ id } -> id == queryId
@@ -753,6 +832,7 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
                 StaleMate -> model.launchTimer
 
     isOccupied = isCellOccupied model.units model.map.obstacles
+    isObstacle = cellObstacle model.map.obstacles
     (unionInputs, confedInputs) =
         when model.armies is
             (Union, Confederates) ->
@@ -771,7 +851,7 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
     getUnitById = makeUnitIdLocator model.units
 
     unionHoverCell =
-        getHoverCell model.hovering.union unionInputs.inputs unionInputs.last
+        getHoverCell model.hovering.union unionInputs.inputs unionInputs.last isObstacle
         |> Hex.clamp
 
     (unionMove, nextUnionIndex) =
@@ -787,7 +867,7 @@ updateInGame = \model, frameCount, inputs, lastInputs ->
         }
 
     confedHover =
-        getHoverCell model.hovering.confederate confedInputs.inputs confedInputs.last
+        getHoverCell model.hovering.confederate confedInputs.inputs confedInputs.last isObstacle
         |> Hex.clamp
     (confedMove, nextConfedIndex) =
         updateMoveChoice model.moves.1 {
@@ -886,7 +966,6 @@ renderInGame = \model, netplay, _frameCount ->
 
     getOwner = \pad -> getPadOwner model.units pad
     Drawing.drawPads! model.map.launchPads getOwner
-
     Drawing.drawLaunchTimer! msRemaining totalMs
     Drawing.drawPlayerMove! model.moves.0 getUnitById Color2
     Drawing.drawPlayerMove! model.moves.1 getUnitById Color3
