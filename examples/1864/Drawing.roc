@@ -8,6 +8,7 @@ module [
     drawBoardRect,
     drawPlayerMove,
     drawHoverPositon,
+    drawToolbar,
     drawGrid,
     drawLaunchPad,
     drawLaunchTimer,
@@ -294,34 +295,22 @@ drawTitle = \point ->
     W4.text! " Year of Decision" { x: 10, y: 3 }
     resetColors
 
-drawLaunchTimer = \remaining, total ->
+drawLaunchTimer = \remaining, total, center ->
     totalWidth = Hex.hexWidth |> Num.mul 3 |> Num.sub Hex.hexWidth |> Num.toFrac
     launchWindowHeight = 26
     launchWindowWidth = totalWidth + 12
-    barX =
-        Num.toFrac (boardRect.x + (Num.toI32 boardRect.width))
-        |> Num.div 2
-        |> Num.sub (launchWindowWidth / 2)
-        |> Num.round
-        |> Num.add 1
-        |> Num.toI32
-
-    barY =
-        boardRect.height
-        |> Num.add (Num.toU32 boardRect.y)
-        |> Num.toFrac
-        |> Num.div 2
-        |> Num.round
-        |> Num.sub (Num.round (Num.toFrac launchWindowHeight / 2))
-        |> Num.add 1
-        |> Num.toI32
-
+    minus50Percent = {
+        x: launchWindowWidth / 2 |> Num.round |> Num.sub 1 |> Num.mul -1 |> Num.toI32,
+        y: launchWindowHeight / 2 |> Num.round |> Num.sub 2 |> Num.mul -1 |> Num.toI32,
+    }
+    corner = Hex.addPoint center minus50Percent
     windowDims = {
         width: launchWindowWidth |> Num.round,
         height: launchWindowHeight,
-        x: barX,
-        y: barY,
+        x: corner.x,
+        y: corner.y,
     }
+
     msg =
         if remaining <= 0 then
             ""
@@ -335,37 +324,30 @@ drawLaunchTimer = \remaining, total ->
             |> Num.toStr
         else
             remaining |> Num.toFrac |> Num.div 1000 |> Num.round |> Num.toStr
+
     width =
         (Num.toFrac (total - remaining))
         |> Num.div (Num.toFrac total)
         |> Num.mul totalWidth
         |> Num.round
 
-    baseX =
-        windowDims.x
-        |> Num.add (Num.round (Num.toFrac windowDims.width / 2))
-        |> Num.sub (Num.round ((totalWidth) / 2))
-
     timerSize = Str.countUtf8Bytes msg
-    launchBarX = baseX
-    launchBarY =
-        Num.toI32 windowDims.height
-        |> Num.add barY
-        |> Num.sub 10
+
+    countDownCoords = Hex.addPoint { y: center.y, x: center.x } {
+        y: -4,
+        x: Num.toFrac timerSize |> Num.mul -4 |> Num.round |> Num.add 0,
+    }
+    launchBarCorner = Hex.addPoint { y: center.y, x: center.x } {
+        y: 4,
+        x: totalWidth |> Num.div -2 |> Num.round,
+    }
 
     launchBar = {
-        x: launchBarX,
-        y: launchBarY,
+        x: launchBarCorner.x,
+        y: launchBarCorner.y,
         width: Num.round totalWidth,
         height: 4,
     }
-
-    x =
-        Num.toFrac windowDims.x
-        |> Num.add (Num.toFrac windowDims.width / 2)
-        |> Num.sub (Num.toFrac timerSize |> Num.mul 8 |> Num.div 2)
-        |> Num.round
-
 
     (fill, fg) =
         isFlashing =
@@ -381,13 +363,12 @@ drawLaunchTimer = \remaining, total ->
         #     remaining < 1_000 |> Bool.and remaining % 100 > 100)
         #     |> Bool.or (remaining < 5_000 |> Bool.and remaining % 1_000 > 500
         if isFlashing then
-           (Color3, Color1)
+            (Color3, Color1)
         else
-           (Color1, Color3)
+            (Color1, Color3)
     shapeColor = { border: fg, fill }
     launchColors = { border: Color4, fill: fg }
     textColors = { bg: None, fg }
-
     W4.setShapeColors! shapeColor
     W4.oval! windowDims
     W4.setShapeColors! { border: Color2, fill: None }
@@ -395,4 +376,28 @@ drawLaunchTimer = \remaining, total ->
     W4.setShapeColors! launchColors
     W4.rect! { launchBar & width }
     W4.setTextColors! textColors
-    msg |> W4.text! { x, y: barY + 6 |> Num.abs }
+    msg |> W4.text! countDownCoords
+
+drawToolbar = \location ->
+    W4.setShapeColors! { border: Color2, fill: None }
+    W4.rect! { x: location.x, y: location.y, width: 160, height: 20 }
+    spacing = 4
+    iPoint = Hex.addPoint location {x: 0 |> Num.add spacing, y: 2 }
+    point = Hex.addPoint iPoint { x: (iPoint.x + 12 + spacing), y: 0 }
+    cannonPoint = Hex.addPoint point { x: (16 + spacing), y: 0 }
+    drawSpawnButton! Assets.horsey point Bool.false
+    drawSpawnButton! Assets.infantry iPoint Bool.true
+    drawSpawnButton! Assets.cannon cannonPoint Bool.false
+    # assets = [Assets.infantry, Assets.horsey, Assets.cannon]
+    # Sprite.blit! Assets.infantry (Hex.addPoint location { x: 8 + spacing, y: 0 })
+
+drawSpawnButton = \asset, point, selected ->
+    rectColor =
+        if selected then { fill: Color2, border: Color4 }
+        else { fill: Color4, border: Color3 }
+    spriteColor = if selected then Color1 else Color2
+    W4.setShapeColors! rectColor
+    W4.rect! { width: 16, height: 16, x: point.x, y: point.y }
+    W4.setShapeColors! { border: spriteColor, fill: None }
+    Sprite.blit asset (Hex.addPoint point { x: 4, y: 3 })
+
