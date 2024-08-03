@@ -11,7 +11,7 @@ health = \@Health { now, base } ->
 
 takeHit : Health, U32 -> Health
 takeHit = \@Health { now, base }, damage ->
-    next = if damage < now then (now - damage) else 0
+    next = if damage >= now then 0 else (now - damage)
     @Health { base, now: next }
 
 isAlive = \@Health { now } -> now > 0

@@ -701,6 +701,7 @@ maybeUpdateHoverCell = \isOccupied, oldIndex, newIndex, current ->
     else
         current
 
+
 renderInGame = \model, netplay, _frameCount ->
     thePlayer = getCurrentPlayer netplay
     theArmy = playerArmy thePlayer
@@ -738,11 +739,39 @@ renderInGame = \model, netplay, _frameCount ->
         x: (boardRect.x + (Num.toI32 boardRect.width)) |> Num.toFrac |> Num.div 2 |> Num.round,
         y: (boardRect.y + (Num.toI32 boardRect.height)) |> Num.toFrac |> Num.div 2 |> Num.round,
     }
-    Drawing.drawPlayerMove! model.moves.0 getUnitById Color2
-    Drawing.drawPlayerMove! model.moves.1 getUnitById Color3
-    Drawing.drawHoverPositon! model.hovering.union (armyColor Union)
-    W4.setShapeColors! { border: armyColor Confederates, fill: None }
-    Drawing.drawHoverPositon! model.hovering.confederate (armyColor Confederates)
+    # Drawing.drawPlayer! model.moves.0 getUnitById Color2 model.hovering.union
+    # Drawing.drawPlayer! model.moves.1 getUnitById Color3 model.hovering.confederate
+    np = W4.getNetplay!
+    moves = when np is
+        Disabled ->
+            Drawing.drawPlayer model.moves.0 getUnitById Color2 model.hovering.union
+            |> Task.await \_ -> Drawing.drawPlayer model.moves.1 getUnitById Color3 model.hovering.confederate
+        Enabled _ ->
+            if theArmy == Union then
+                Drawing.drawPlayer model.moves.0 getUnitById Color2 model.hovering.union
+            else
+                Drawing.drawPlayer model.moves.1 getUnitById Color3 model.hovering.confederate
+
+    moves!
+    # isNetplay = when np is
+    #     Disabled -> drawP1 |> Task.await \_ -> drawP2
+    #     _ -> Task.ok {}
+    # drawP1!
+    # drawP2!
+
+
+#     np = isNetplay
+#         |> Task.await \isNet ->
+#             if theArmy == Union then
+#                 drawP1
+#             else if isNet then
+#                 drawP2
+#             else
+#                 drawP1 |> Task.await \_ -> drawP2
+
+#     Drawing.drawHoverPositon! model.hovering.union (armyColor Union)
+#     W4.setShapeColors! { border: armyColor Confederates, fill: None }
+#     Drawing.drawHoverPositon! model.hovering.confederate (armyColor Confederates)
 
     selectedUnit =
         when theMove is
@@ -794,7 +823,11 @@ renderInGame = \model, netplay, _frameCount ->
         x: boardRect.x + (Num.toI32 boardRect.width) - (Num.toI32 (width * 7)),
         y: (boardRect.y + (Num.toI32 boardRect.height) + 2) |> Num.abs,
     }
-    Drawing.resetColors
+    Drawing.drawToolbar {
+        x: 0,
+        y: 160 - 50,
+        # (Num.toI32 boardRect.height) |> Num.sub 25
+    }
 
 updateMoveChoice : Unit.MoveChoice, _ -> (Unit.MoveChoice, U64)
 updateMoveChoice = \currentChoice, { hovering, theArmy, getUnitById, zPressed, wasPressed, nextIndex, isOccupied, units } ->

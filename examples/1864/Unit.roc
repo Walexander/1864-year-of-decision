@@ -343,4 +343,3 @@ expect
         Hex.doubled 4 0,
     ]
     actual == expected
-

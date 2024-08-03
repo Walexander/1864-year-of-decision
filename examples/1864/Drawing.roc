@@ -6,8 +6,7 @@ module [
     drawSelectionIndicator,
     drawUnits,
     drawBoardRect,
-    drawPlayerMove,
-    drawHoverPositon,
+    drawPlayer,
     drawToolbar,
     drawGrid,
     drawLaunchPad,
@@ -120,7 +119,11 @@ drawHoverPositon = \cell, color ->
     W4.setShapeColors! { border: color, fill: None }
     blitHexagon cell boardRect Assets.hex
 
-drawPlayerMove = \move, get, color ->
+drawPlayer = \move, get, color, hovering ->
+    drawPlayerMove! move get color
+    drawHoverPositon hovering color
+
+drawPlayerMove = \move, get, color  ->
     W4.setPrimaryColor! color
     when move is
         Selected id planned ->
